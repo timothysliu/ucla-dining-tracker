@@ -12,8 +12,22 @@ const QUARTERS = [
   { name: "Spring 2028", start: "2028-03-22", end: "2028-06-09" },
 ];
 
-const WEEK_SWIPES = 19;
 const SWIPE_VALUE = 16.50;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Meal Plans — all 6 UCLA options
+// Premier (P): meals roll over week-to-week within a quarter.
+// Regular (R): no rollover; strict weekly reset; one entry per meal period.
+// ─────────────────────────────────────────────────────────────────────────────
+const MEAL_PLANS = {
+  "19P": { label: "19 Premier", weekly: 19, premier: true  },
+  "19R": { label: "19 Regular", weekly: 19, premier: false },
+  "14P": { label: "14 Premier", weekly: 14, premier: true  },
+  "14R": { label: "14 Regular", weekly: 14, premier: false },
+  "11P": { label: "11 Premier", weekly: 11, premier: true  },
+  "11R": { label: "11 Regular", weekly: 11, premier: false },
+};
+const DEFAULT_PLAN = "19P";
 
 const DEFAULT_LOCATIONS = [
   "De Neve","Epicuria at Covel","Bruin Plate","Rendezvous",
@@ -81,7 +95,8 @@ function weeksInQuarter(quarter) {
   return weeks;
 }
 
-function computeRollover(meals) {
+// Premier rollover: accumulates unused swipes across weeks within a quarter
+function computeRollover(meals, weeklySwipes) {
   const today = new Date();
   const curWeek = getWeekStart(today);
   let bank = 0;
@@ -95,7 +110,7 @@ function computeRollover(meals) {
         const d = new Date(m.timestamp);
         return d >= new Date(weekStart) && d < weekEnd;
       }).length;
-      bank = Math.max(0, WEEK_SWIPES + bank - used);
+      bank = Math.max(0, weeklySwipes + bank - used);
     }
     if (new Date(quarter.end) < today) continue;
     break;
@@ -103,16 +118,44 @@ function computeRollover(meals) {
   return bank;
 }
 
+// Total quarter meals used & remaining (Premier only)
+function computeQuarterStats(meals, weeklySwipes) {
+  const today = new Date();
+  const quarter = getActiveQuarter(today);
+  if (!quarter) return null;
+  const weeks = weeksInQuarter(quarter);
+  const totalQuarter = weeks.length * weeklySwipes;
+  const used = meals.filter(m => {
+    const d = new Date(m.timestamp);
+    return d >= new Date(quarter.start) && d <= new Date(quarter.end + "T23:59:59");
+  }).length;
+  return { totalQuarter, used, remaining: Math.max(0, totalQuarter - used), quarter };
+}
+
+// Regular: meals this week (no rollover). Returns swipes left this week only.
+function computeRegularWeekly(meals, weeklySwipes) {
+  const curWeek = getWeekStart();
+  const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
+  const used = meals.filter(m => {
+    const d = new Date(m.timestamp);
+    return d >= new Date(curWeek) && d < weekEnd;
+  }).length;
+  return { used, left: Math.max(0, weeklySwipes - used) };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Persistence
 // ─────────────────────────────────────────────────────────────────────────────
-const STORAGE_KEY = "ucla_dining_v2";
+const STORAGE_KEY = "ucla_dining_v3";
 function load() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { meals: [], customLocations: [] };
-    return JSON.parse(raw);
-  } catch { return { meals: [], customLocations: [] }; }
+    // Try v3 first, fall back to v2 (migrate old data)
+    let raw = localStorage.getItem("ucla_dining_v3") || localStorage.getItem("ucla_dining_v2");
+    if (!raw) return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN };
+    const parsed = JSON.parse(raw);
+    if (!parsed.mealPlan) parsed.mealPlan = DEFAULT_PLAN; // migrate
+    return parsed;
+  } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN }; }
 }
 function persist(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
@@ -170,20 +213,21 @@ function AddLocationModal({ onClose, onAdd }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Log Meal Modal
 // ─────────────────────────────────────────────────────────────────────────────
-function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop }) {
+function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, editMeal = null }) {
+  const isEditing = !!editMeal;
   const [step, setStep] = useState(1);
-  const [location, setLocation] = useState("");
-  const [period, setPeriod] = useState(() => {
+  const [location, setLocation] = useState(editMeal?.location || "");
+  const [period, setPeriod] = useState(editMeal?.period || (() => {
     const h = new Date().getHours();
     if (h < 11) return "Breakfast";
     if (h < 15) return "Lunch";
     if (h < 20) return "Dinner";
     return "Late Night";
-  });
-  const [foods, setFoods] = useState([]);
+  })());
+  const [foods, setFoods] = useState(editMeal?.foods || []);
   const [customFood, setCustomFood] = useState("");
-  const [rating, setRating] = useState(0);
-  const [note, setNote] = useState("");
+  const [rating, setRating] = useState(editMeal?.rating || 0);
+  const [note, setNote] = useState(editMeal?.note || "");
   const [showAddLoc, setShowAddLoc] = useState(false);
   const customFoodRef = useRef();
 
@@ -198,7 +242,9 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop }) {
 
   const canNext1 = location && period;
   const canNext2 = foods.length > 0;
-  const stepLabels = ["WHERE & WHEN", "WHAT DID YOU EAT", "HOW WAS IT"];
+  const stepLabels = isEditing
+    ? ["EDIT LOCATION & TIME", "EDIT FOODS", "EDIT RATING & NOTES"]
+    : ["WHERE & WHEN", "WHAT DID YOU EAT", "HOW WAS IT"];
 
   // On desktop, modal is centered and floats
   const desktopModalOverride = isDesktop ? {
@@ -304,9 +350,13 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop }) {
                 Next →
               </button>
             ) : (
-              <button onClick={() => onSave({ id: Date.now(), timestamp: new Date().toISOString(), location, period, foods, rating, note })}
+              <button onClick={() => onSave({
+                  id: editMeal?.id || Date.now(),
+                  timestamp: editMeal?.timestamp || new Date().toISOString(),
+                  location, period, foods, rating, note,
+                })}
                 style={{ ...primaryBtnStyle, flex: 2, background: "#27AE60" }}>
-                Save meal ✓
+                {isEditing ? "Save changes ✓" : "Save meal ✓"}
               </button>
             )}
           </div>
@@ -323,7 +373,7 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Meal Card
 // ─────────────────────────────────────────────────────────────────────────────
-function MealCard({ meal, onDelete }) {
+function MealCard({ meal, onDelete, onEdit }) {
   const [open, setOpen] = useState(false);
   return (
     <div onClick={() => setOpen(o => !o)} style={{
@@ -349,8 +399,12 @@ function MealCard({ meal, onDelete }) {
         <div style={{ fontSize: 12, color: "#888", marginTop: 6, fontStyle: "italic" }}>"{meal.note}"</div>
       )}
       {open && (
-        <button onClick={e => { e.stopPropagation(); onDelete(meal.id); }}
-          style={{ ...ghostBtnStyle, fontSize: 12, color: "#e74c3c", marginTop: 8 }}>Delete meal</button>
+        <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+          <button onClick={e => { e.stopPropagation(); onEdit(meal); }}
+            style={{ ...ghostBtnStyle, fontSize: 12, color: "#2774AE", fontWeight: 600 }}>✏ Edit</button>
+          <button onClick={e => { e.stopPropagation(); onDelete(meal.id); }}
+            style={{ ...ghostBtnStyle, fontSize: 12, color: "#e74c3c" }}>Delete</button>
+        </div>
       )}
     </div>
   );
@@ -359,7 +413,7 @@ function MealCard({ meal, onDelete }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Meal Log Panel
 // ─────────────────────────────────────────────────────────────────────────────
-function MealLog({ meals, onDelete, onLogNew, isDesktop }) {
+function MealLog({ meals, onDelete, onEdit, onLogNew, isDesktop }) {
   const grouped = {};
   meals.forEach(m => {
     const dk = m.timestamp.split("T")[0];
@@ -381,7 +435,7 @@ function MealLog({ meals, onDelete, onLogNew, isDesktop }) {
           <div style={{ fontSize: 11, fontWeight: 600, color: "#bbb", letterSpacing: .5, margin: "16px 0 8px" }}>
             {fmtDate(dk + "T12:00:00")}
           </div>
-          {grouped[dk].map(m => <MealCard key={m.id} meal={m} onDelete={onDelete} />)}
+          {grouped[dk].map(m => <MealCard key={m.id} meal={m} onDelete={onDelete} onEdit={onEdit} />)}
         </div>
       ))}
 
@@ -408,18 +462,89 @@ function MealLog({ meals, onDelete, onLogNew, isDesktop }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Stats Panel
 // ─────────────────────────────────────────────────────────────────────────────
-function Stats({ meals }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Meal Plan Selector
+// ─────────────────────────────────────────────────────────────────────────────
+function MealPlanSelector({ currentPlan, onChangePlan }) {
+  const premiers = ["19P","14P","11P"];
+  const regulars = ["19R","14R","11R"];
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6 }}>
+        Select your UCLA dining plan. <strong>Premier</strong> plans let unused meals roll over week-to-week within the quarter. <strong>Regular</strong> plans reset every week with no rollover.
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 12, color: "#2774AE", fontWeight: 700, marginBottom: 12, letterSpacing: .5 }}>PREMIER PLANS</div>
+        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>Unused meals roll over week to week within the quarter</div>
+        {premiers.map(id => {
+          const p = MEAL_PLANS[id];
+          const active = currentPlan === id;
+          return (
+            <button key={id} onClick={() => onChangePlan(id)} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              width: "100%", padding: "12px 14px", marginBottom: 8,
+              border: active ? "2px solid #2774AE" : "1.5px solid #e5e5e5",
+              borderRadius: 10, background: active ? "#eef5fb" : "#fff",
+              cursor: "pointer", textAlign: "left",
+            }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: active ? "#2774AE" : "#222" }}>{p.label}</div>
+                <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{p.weekly} meals/week · rollover ✓</div>
+              </div>
+              {active && <span style={{ color: "#2774AE", fontSize: 18 }}>✓</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 12, color: "#888", fontWeight: 700, marginBottom: 12, letterSpacing: .5 }}>REGULAR PLANS</div>
+        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>Weekly reset — unused meals do not carry over</div>
+        {regulars.map(id => {
+          const p = MEAL_PLANS[id];
+          const active = currentPlan === id;
+          return (
+            <button key={id} onClick={() => onChangePlan(id)} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              width: "100%", padding: "12px 14px", marginBottom: 8,
+              border: active ? "2px solid #666" : "1.5px solid #e5e5e5",
+              borderRadius: 10, background: active ? "#f5f5f5" : "#fff",
+              cursor: "pointer", textAlign: "left",
+            }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: active ? "#444" : "#222" }}>{p.label}</div>
+                <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{p.weekly} meals/week · no rollover</div>
+              </div>
+              {active && <span style={{ color: "#666", fontSize: 18 }}>✓</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Stats({ meals, mealPlan }) {
+  const plan = MEAL_PLANS[mealPlan] || MEAL_PLANS[DEFAULT_PLAN];
+  const { weekly, premier } = plan;
   const today = new Date();
   const curWeek = getWeekStart(today);
-  const rollover = computeRollover(meals);
   const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
-  const thisWeekMeals = meals.filter(m => {
+  const thisWeekUsed = meals.filter(m => {
     const d = new Date(m.timestamp);
     return d >= new Date(curWeek) && d < weekEnd;
-  });
-  const swipesUsed = thisWeekMeals.length;
-  const totalAvail = WEEK_SWIPES + rollover;
-  const swipesLeft = Math.max(0, totalAvail - swipesUsed);
+  }).length;
+
+  // Premier: rollover bank + quarter totals
+  const rollover = premier ? computeRollover(meals, weekly) : 0;
+  const totalAvail = premier ? weekly + rollover : weekly;
+  const swipesLeft = Math.max(0, totalAvail - thisWeekUsed);
+  const quarterStats = premier ? computeQuarterStats(meals, weekly) : null;
+
+  // Regular: strict weekly
+  const regWeekly = !premier ? computeRegularWeekly(meals, weekly) : null;
+
   const activeQ = getActiveQuarter(today);
 
   const locRatings = {};
@@ -446,29 +571,68 @@ function Stats({ meals }) {
     weekHistory.push({ wk, used, label: i === 0 ? "This week" : `${i}w ago` });
   }
 
+  const alertColor = swipesLeft < 3 ? "#e74c3c" : "#2774AE";
+
   return (
     <div style={{ display: "grid", gap: 12 }}>
       {activeQ && (
         <div style={{ fontSize: 12, color: "#2774AE", fontWeight: 600, textAlign: "center", padding: "2px 0" }}>
-          {activeQ.name} · ends {fmtDate(activeQ.end + "T12:00:00")}
+          {activeQ.name} · ends {fmtDate(activeQ.end + "T12:00:00")} · <span style={{ color: "#888", fontWeight: 400 }}>{plan.label}</span>
         </div>
       )}
+
+      {/* Weekly balance */}
       <div style={cardStyle}>
-        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>This week · swipe balance</div>
+        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>
+          This week · {premier ? "swipe balance (w/ rollover)" : "swipes remaining"}
+        </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <span style={{ fontSize: 40, fontWeight: 700, color: swipesLeft < 4 ? "#e74c3c" : "#2774AE", lineHeight: 1 }}>{swipesLeft}</span>
-          <span style={{ fontSize: 13, color: "#aaa" }}>left of {totalAvail}{rollover > 0 ? ` (incl. ${rollover} rolled over)` : ""}</span>
+          <span style={{ fontSize: 40, fontWeight: 700, color: alertColor, lineHeight: 1 }}>{swipesLeft}</span>
+          <span style={{ fontSize: 13, color: "#aaa" }}>
+            left of {totalAvail}
+            {premier && rollover > 0 ? ` (incl. ${rollover} rolled over)` : ""}
+          </span>
         </div>
         <div style={{ margin: "10px 0 4px", height: 7, background: "#eee", borderRadius: 4 }}>
-          <div style={{ height: "100%", borderRadius: 4, background: swipesLeft < 4 ? "#e74c3c" : "#2774AE",
-            width: `${totalAvail ? Math.min(100,(swipesUsed/totalAvail)*100) : 0}%`, transition: "width .4s" }} />
+          <div style={{ height: "100%", borderRadius: 4, background: alertColor,
+            width: `${totalAvail ? Math.min(100,(thisWeekUsed/totalAvail)*100) : 0}%`, transition: "width .4s" }} />
         </div>
-        <div style={{ fontSize: 11, color: "#bbb" }}>{swipesUsed} used · resets next Monday</div>
+        <div style={{ fontSize: 11, color: "#bbb" }}>
+          {thisWeekUsed} used this week · {premier ? "resets Monday, surplus rolls over" : "resets Monday — no rollover"}
+        </div>
       </div>
+
+      {/* Premier: quarter total */}
+      {premier && quarterStats && (
+        <div style={cardStyle}>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>Quarter total · {quarterStats.quarter.name}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, textAlign: "center" }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#2774AE" }}>{quarterStats.remaining}</div>
+              <div style={{ fontSize: 10, color: "#aaa" }}>remaining</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#555" }}>{quarterStats.used}</div>
+              <div style={{ fontSize: 10, color: "#aaa" }}>used</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#888" }}>{quarterStats.totalQuarter}</div>
+              <div style={{ fontSize: 10, color: "#aaa" }}>total</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 10, height: 6, background: "#eee", borderRadius: 4 }}>
+            <div style={{ height: "100%", borderRadius: 4, background: "#2774AE",
+              width: `${(quarterStats.used / quarterStats.totalQuarter) * 100}%`, transition: "width .4s" }} />
+          </div>
+          <div style={{ fontSize: 11, color: "#bbb", marginTop: 4 }}>
+            All meals expire at quarter end — use them or lose them
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={cardStyle}>
-          <div style={{ fontSize: 11, color: "#aaa" }}>Total meals</div>
+          <div style={{ fontSize: 11, color: "#aaa" }}>Total meals logged</div>
           <div style={{ fontSize: 30, fontWeight: 700, marginTop: 2 }}>{meals.length}</div>
         </div>
         <div style={cardStyle}>
@@ -484,7 +648,7 @@ function Stats({ meals }) {
             <div key={label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#555" }}>{used}</div>
               <div style={{ width: "100%", background: "#2774AE", borderRadius: "4px 4px 0 0",
-                height: `${Math.max(4, (used / WEEK_SWIPES) * 52)}px`, opacity: label === "This week" ? 1 : 0.4 }} />
+                height: `${Math.max(4, (used / weekly) * 52)}px`, opacity: label === "This week" ? 1 : 0.4 }} />
               <div style={{ fontSize: 10, color: "#bbb" }}>{label}</div>
             </div>
           ))}
@@ -570,6 +734,7 @@ function LocationsManager({ customLocations, onAdd, onRemove }) {
 export default function App() {
   const [data, setData] = useState(load);
   const [showLog, setShowLog] = useState(false);
+  const [editingMeal, setEditingMeal] = useState(null);
   const [tab, setTab] = useState("log");
   const [toast, setToast] = useState(null);
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
@@ -579,6 +744,15 @@ export default function App() {
     update({ ...data, meals: [meal, ...data.meals] });
     setShowLog(false);
     setToast("Meal logged ✓");
+    setTimeout(() => setToast(null), 2500);
+  }
+  function handleEdit(meal) {
+    setEditingMeal(meal);
+  }
+  function handleUpdate(updatedMeal) {
+    update({ ...data, meals: data.meals.map(m => m.id === updatedMeal.id ? updatedMeal : m) });
+    setEditingMeal(null);
+    setToast("Meal updated ✓");
     setTimeout(() => setToast(null), 2500);
   }
   function handleDelete(id) { update({ ...data, meals: data.meals.filter(m => m.id !== id) }); }
@@ -591,19 +765,29 @@ export default function App() {
   }
 
   const allLocations = [...DEFAULT_LOCATIONS, ...(data.customLocations || [])];
-  const rollover = computeRollover(data.meals);
+  const mealPlan = data.mealPlan || DEFAULT_PLAN;
+  const plan = MEAL_PLANS[mealPlan];
+  const { weekly, premier } = plan;
+  const rollover = premier ? computeRollover(data.meals, weekly) : 0;
   const curWeek = getWeekStart();
   const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
   const thisWeekUsed = data.meals.filter(m => {
     const d = new Date(m.timestamp);
     return d >= new Date(curWeek) && d < weekEnd;
   }).length;
-  const swipesLeft = Math.max(0, WEEK_SWIPES + rollover - thisWeekUsed);
+  const swipesLeft = Math.max(0, (premier ? weekly + rollover : weekly) - thisWeekUsed);
+
+  function handleChangePlan(planId) {
+    update({ ...data, mealPlan: planId });
+    setToast("Switched to " + MEAL_PLANS[planId].label + " ✓");
+    setTimeout(() => setToast(null), 2500);
+  }
 
   const TABS = [
     { id: "log", label: "Meal Log" },
     { id: "stats", label: "Stats" },
     { id: "locations", label: "Locations" },
+    { id: "settings", label: "Settings" },
   ];
 
   // ── Desktop layout ──────────────────────────────────────────────────────────
@@ -656,12 +840,12 @@ export default function App() {
               {/* Left: meal log */}
               <div>
                 <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Recent meals</div>
-                <MealLog meals={data.meals} onDelete={handleDelete} onLogNew={() => setShowLog(true)} isDesktop={true} />
+                <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={true} />
               </div>
               {/* Right: stats sidebar */}
               <div>
                 <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>This week</div>
-                <Stats meals={data.meals} />
+                <Stats meals={data.meals} mealPlan={mealPlan} />
               </div>
             </>
           )}
@@ -669,7 +853,7 @@ export default function App() {
           {tab === "stats" && (
             <div style={{ maxWidth: 800 }}>
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Stats & Trends</div>
-              <Stats meals={data.meals} />
+              <Stats meals={data.meals} mealPlan={mealPlan} />
             </div>
           )}
 
@@ -683,10 +867,18 @@ export default function App() {
               />
             </div>
           )}
+          {tab === "settings" && (
+            <div style={{ maxWidth: 600 }}>
+              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Meal Plan</div>
+              <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+            </div>
+          )}
         </div>
 
         {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
           allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={true} />}
+        {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
+          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={true} editMeal={editingMeal} />}
         {toast && <Toast msg={toast} />}
       </div>
     );
@@ -730,18 +922,26 @@ export default function App() {
         <div style={{ padding: "20px 24px 40px", maxWidth: 900, margin: "0 auto" }}>
           {tab === "log" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
-              <MealLog meals={data.meals} onDelete={handleDelete} onLogNew={() => setShowLog(true)} isDesktop={true} />
-              <Stats meals={data.meals} />
+              <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={true} />
+              <Stats meals={data.meals} mealPlan={mealPlan} />
             </div>
           )}
-          {tab === "stats" && <Stats meals={data.meals} />}
+          {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
           {tab === "locations" && (
             <LocationsManager customLocations={data.customLocations || []}
               onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
           )}
+          {tab === "settings" && (
+            <div style={{ maxWidth: 600 }}>
+              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>Meal Plan</div>
+              <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+            </div>
+          )}
         </div>
         {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
           allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
+        {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
+          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} editMeal={editingMeal} />}
         {toast && <Toast msg={toast} />}
       </div>
     );
@@ -775,17 +975,25 @@ export default function App() {
 
       <div style={{ padding: "16px 16px 110px" }}>
         {tab === "log" && (
-          <MealLog meals={data.meals} onDelete={handleDelete} onLogNew={() => setShowLog(true)} isDesktop={false} />
+          <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={false} />
         )}
-        {tab === "stats" && <Stats meals={data.meals} />}
+        {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
         {tab === "locations" && (
           <LocationsManager customLocations={data.customLocations || []}
             onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+        )}
+        {tab === "settings" && (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Meal Plan</div>
+            <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+          </div>
         )}
       </div>
 
       {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
         allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
+      {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
+        allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} editMeal={editingMeal} />}
       {toast && <Toast msg={toast} />}
     </div>
   );
