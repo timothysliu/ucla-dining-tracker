@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UCLA Academic Calendar — quarter date ranges (used for rollover resets)
-// Swipes are 19/week within a quarter; unused roll over week-to-week.
-// Between quarters the rollover bank carries forward unchanged.
+// UCLA Academic Calendar
 // ─────────────────────────────────────────────────────────────────────────────
 const QUARTERS = [
   { name: "Fall 2026",   start: "2026-09-21", end: "2026-12-11" },
@@ -17,19 +15,10 @@ const QUARTERS = [
 const WEEK_SWIPES = 19;
 const SWIPE_VALUE = 16.50;
 
-// Default dining locations (can be extended by user)
 const DEFAULT_LOCATIONS = [
-  "De Neve",
-  "Epicuria at Covel",
-  "Bruin Plate",
-  "Rendezvous",
-  "The Study at Hedrick",
-  "Bruin Café",
-  "Café 1919",
-  "Epic at Ackerman",
-  "Northern Lights Café",
-  "Anderson Café",
-  "Luvalle Commons",
+  "De Neve","Epicuria at Covel","Bruin Plate","Rendezvous",
+  "The Study at Hedrick","Bruin Café","Café 1919",
+  "Epic at Ackerman","Northern Lights Café","Anderson Café","Luvalle Commons",
 ];
 
 const MEAL_PERIODS = ["Breakfast", "Lunch", "Dinner", "Late Night"];
@@ -42,15 +31,31 @@ const COMMON_FOODS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Responsive breakpoint hook
+// ─────────────────────────────────────────────────────────────────────────────
+function useBreakpoint() {
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const handler = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return {
+    isMobile: width < 768,
+    isTablet: width >= 768 && width < 1100,
+    isDesktop: width >= 1100,
+    width,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Calendar helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Returns the Monday (ISO week start we'll use) of a given date
 function getWeekStart(date = new Date()) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // 0=Sun
-  const diff = day === 0 ? -6 : 1 - day; // shift to Monday
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   return d.toISOString().split("T")[0];
 }
@@ -64,7 +69,6 @@ function getActiveQuarter(date = new Date()) {
   return QUARTERS.find(q => ds >= q.start && ds <= q.end) || null;
 }
 
-// Returns all ISO week-start strings (Monday) within a quarter
 function weeksInQuarter(quarter) {
   const weeks = [];
   const end = new Date(quarter.end);
@@ -77,38 +81,25 @@ function weeksInQuarter(quarter) {
   return weeks;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Rollover calculator
-// Given all meals, compute the rollover bank going into the current week.
-// Logic: for each past week in past quarters (chronologically), tally swipes
-// used vs 19 + previous rollover. Accumulate surplus.
-// ─────────────────────────────────────────────────────────────────────────────
 function computeRollover(meals) {
   const today = new Date();
   const curWeek = getWeekStart(today);
   let bank = 0;
-
-  // Walk every quarter chronologically
   for (const quarter of QUARTERS) {
     const weeks = weeksInQuarter(quarter);
     for (const weekStart of weeks) {
-      if (weekStart >= curWeek) break; // don't process current or future weeks
-      // meals in this week
+      if (weekStart >= curWeek) break;
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekEnd.getDate() + 7);
       const used = meals.filter(m => {
         const d = new Date(m.timestamp);
         return d >= new Date(weekStart) && d < weekEnd;
       }).length;
-      const available = WEEK_SWIPES + bank;
-      const surplus = Math.max(0, available - used);
-      bank = surplus;
+      bank = Math.max(0, WEEK_SWIPES + bank - used);
     }
-    // If quarter ended before today, bank carries into next quarter unchanged
     if (new Date(quarter.end) < today) continue;
-    break; // we've reached the current quarter
+    break;
   }
-
   return bank;
 }
 
@@ -116,7 +107,6 @@ function computeRollover(meals) {
 // Persistence
 // ─────────────────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "ucla_dining_v2";
-
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -124,13 +114,10 @@ function load() {
     return JSON.parse(raw);
   } catch { return { meals: [], customLocations: [] }; }
 }
-
-function persist(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
+function persist(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tiny helpers
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -161,14 +148,11 @@ function AddLocationModal({ onClose, onAdd }) {
   const [name, setName] = useState("");
   const inputRef = useRef();
   useEffect(() => { inputRef.current?.focus(); }, []);
-
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, padding: "28px 20px 24px" }}>
+      <div style={{ ...modalStyle, padding: "28px 24px 28px", maxWidth: 460, borderRadius: 16, margin: "auto" }}>
         <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Add a location</div>
-        <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>
-          Café, food truck, off-campus spot — anything works.
-        </div>
+        <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>Café, food truck, off-campus spot — anything works.</div>
         <input ref={inputRef} value={name} onChange={e => setName(e.target.value)}
           onKeyDown={e => e.key === "Enter" && name.trim() && onAdd(name.trim())}
           placeholder="e.g. Kerckhoff Coffee House"
@@ -184,9 +168,9 @@ function AddLocationModal({ onClose, onAdd }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Log Meal Modal  (3-step)
+// Log Meal Modal
 // ─────────────────────────────────────────────────────────────────────────────
-function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
+function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop }) {
   const [step, setStep] = useState(1);
   const [location, setLocation] = useState("");
   const [period, setPeriod] = useState(() => {
@@ -205,9 +189,7 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
 
   useEffect(() => { if (step === 2) customFoodRef.current?.focus(); }, [step]);
 
-  function toggleFood(f) {
-    setFoods(p => p.includes(f) ? p.filter(x => x !== f) : [...p, f]);
-  }
+  function toggleFood(f) { setFoods(p => p.includes(f) ? p.filter(x => x !== f) : [...p, f]); }
   function addCustomFood() {
     const t = customFood.trim();
     if (t && !foods.includes(t)) setFoods(p => [...p, t]);
@@ -216,14 +198,21 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
 
   const canNext1 = location && period;
   const canNext2 = foods.length > 0;
-
   const stepLabels = ["WHERE & WHEN", "WHAT DID YOU EAT", "HOW WAS IT"];
+
+  // On desktop, modal is centered and floats
+  const desktopModalOverride = isDesktop ? {
+    borderRadius: 16, maxWidth: 560, margin: "auto",
+    maxHeight: "80vh", boxShadow: "0 20px 60px rgba(0,0,0,.2)",
+  } : {};
+  const desktopOverlayOverride = isDesktop ? {
+    alignItems: "center",
+  } : {};
 
   return (
     <>
-      <div style={overlayStyle}>
-        <div style={modalStyle}>
-          {/* Header */}
+      <div style={{ ...overlayStyle, ...desktopOverlayOverride }}>
+        <div style={{ ...modalStyle, ...desktopModalOverride }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
             <div>
               <div style={{ fontSize: 10, letterSpacing: 1.2, color: "#2774AE", fontWeight: 700, marginBottom: 6 }}>
@@ -239,7 +228,6 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
             <button onClick={onClose} style={{ ...ghostBtnStyle, fontSize: 20, lineHeight: 1 }}>✕</button>
           </div>
 
-          {/* Step 1 */}
           {step === 1 && (
             <div style={{ flex: 1, overflowY: "auto" }}>
               <div style={fieldLabel}>Dining location</div>
@@ -258,7 +246,6 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
             </div>
           )}
 
-          {/* Step 2 */}
           {step === 2 && (
             <div style={{ flex: 1, overflowY: "auto" }}>
               <div style={fieldLabel}>Tap what you ate</div>
@@ -287,7 +274,6 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
             </div>
           )}
 
-          {/* Step 3 */}
           {step === 3 && (
             <div style={{ flex: 1 }}>
               <div style={fieldLabel}>Rate this meal</div>
@@ -304,7 +290,6 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
             </div>
           )}
 
-          {/* Nav */}
           <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
             {step > 1 && (
               <button onClick={() => setStep(s => s - 1)}
@@ -327,16 +312,9 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation }) {
           </div>
         </div>
       </div>
-
       {showAddLoc && (
-        <AddLocationModal
-          onClose={() => setShowAddLoc(false)}
-          onAdd={name => {
-            onAddLocation(name);
-            setLocation(name);
-            setShowAddLoc(false);
-          }}
-        />
+        <AddLocationModal onClose={() => setShowAddLoc(false)}
+          onAdd={name => { onAddLocation(name); setLocation(name); setShowAddLoc(false); }} />
       )}
     </>
   );
@@ -349,8 +327,9 @@ function MealCard({ meal, onDelete }) {
   const [open, setOpen] = useState(false);
   return (
     <div onClick={() => setOpen(o => !o)} style={{
-      background: "#fff", borderRadius: 14, padding: "13px 15px",
-      marginBottom: 9, boxShadow: "0 1px 5px rgba(0,0,0,.07)", cursor: "pointer",
+      background: "#fff", borderRadius: 12, padding: "13px 15px",
+      marginBottom: 8, boxShadow: "0 1px 4px rgba(0,0,0,.07)", cursor: "pointer",
+      transition: "box-shadow .15s",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
@@ -378,19 +357,71 @@ function MealCard({ meal, onDelete }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stats
+// Meal Log Panel
+// ─────────────────────────────────────────────────────────────────────────────
+function MealLog({ meals, onDelete, onLogNew, isDesktop }) {
+  const grouped = {};
+  meals.forEach(m => {
+    const dk = m.timestamp.split("T")[0];
+    if (!grouped[dk]) grouped[dk] = [];
+    grouped[dk].push(m);
+  });
+  const sortedDays = Object.keys(grouped).sort((a,b) => b.localeCompare(a));
+
+  return (
+    <div style={{ position: "relative" }}>
+      {sortedDays.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "70px 20px", color: "#bbb" }}>
+          <div style={{ fontSize: 52, marginBottom: 12 }}>🍽</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#888" }}>No meals logged yet</div>
+          <div style={{ fontSize: 13, marginTop: 6 }}>Hit the button below to track your first meal</div>
+        </div>
+      ) : sortedDays.map(dk => (
+        <div key={dk}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#bbb", letterSpacing: .5, margin: "16px 0 8px" }}>
+            {fmtDate(dk + "T12:00:00")}
+          </div>
+          {grouped[dk].map(m => <MealCard key={m.id} meal={m} onDelete={onDelete} />)}
+        </div>
+      ))}
+
+      {/* FAB — floats inside panel on desktop, fixed on mobile */}
+      <button onClick={onLogNew} style={{
+        ...(isDesktop ? {
+          display: "flex", alignItems: "center", gap: 8,
+          margin: "24px auto 0", position: "static", transform: "none",
+          width: "fit-content",
+        } : {
+          position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
+          display: "flex", alignItems: "center", gap: 8,
+        }),
+        background: "#2774AE", color: "#fff", border: "none", borderRadius: 30,
+        padding: "13px 32px", fontSize: 15, fontWeight: 600, cursor: "pointer",
+        boxShadow: "0 4px 20px rgba(39,116,174,.45)", whiteSpace: "nowrap", zIndex: 20,
+      }}>
+        <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Log a meal
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stats Panel
 // ─────────────────────────────────────────────────────────────────────────────
 function Stats({ meals }) {
   const today = new Date();
   const curWeek = getWeekStart(today);
   const rollover = computeRollover(meals);
-  const thisWeekMeals = meals.filter(m => getWeekStart(new Date(m.timestamp)) === curWeek);
+  const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
+  const thisWeekMeals = meals.filter(m => {
+    const d = new Date(m.timestamp);
+    return d >= new Date(curWeek) && d < weekEnd;
+  });
   const swipesUsed = thisWeekMeals.length;
   const totalAvail = WEEK_SWIPES + rollover;
   const swipesLeft = Math.max(0, totalAvail - swipesUsed);
   const activeQ = getActiveQuarter(today);
 
-  // Location ratings
   const locRatings = {};
   meals.forEach(m => {
     if (m.rating > 0) {
@@ -405,40 +436,28 @@ function Stats({ meals }) {
   const byPeriod = {};
   MEAL_PERIODS.forEach(p => byPeriod[p] = meals.filter(m => m.period === p).length);
 
-  // Rollover history — last 4 weeks
   const weekHistory = [];
   for (let i = 3; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i * 7);
     const wk = getWeekStart(d);
-    const wkEnd = new Date(wk);
-    wkEnd.setDate(wkEnd.getDate() + 7);
-    const used = meals.filter(m => {
-      const md = new Date(m.timestamp);
-      return md >= new Date(wk) && md < wkEnd;
-    }).length;
+    const wkEnd = new Date(wk); wkEnd.setDate(wkEnd.getDate() + 7);
+    const used = meals.filter(m => { const md = new Date(m.timestamp); return md >= new Date(wk) && md < wkEnd; }).length;
     weekHistory.push({ wk, used, label: i === 0 ? "This week" : `${i}w ago` });
   }
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {/* Quarter badge */}
       {activeQ && (
-        <div style={{ fontSize: 12, color: "#2774AE", fontWeight: 600, textAlign: "center", padding: "4px 0" }}>
+        <div style={{ fontSize: 12, color: "#2774AE", fontWeight: 600, textAlign: "center", padding: "2px 0" }}>
           {activeQ.name} · ends {fmtDate(activeQ.end + "T12:00:00")}
         </div>
       )}
-
-      {/* Swipe balance */}
       <div style={cardStyle}>
         <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>This week · swipe balance</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <span style={{ fontSize: 40, fontWeight: 700, color: swipesLeft < 4 ? "#e74c3c" : "#2774AE", lineHeight: 1 }}>
-            {swipesLeft}
-          </span>
-          <span style={{ fontSize: 13, color: "#aaa" }}>
-            left of {totalAvail}{rollover > 0 ? ` (incl. ${rollover} rolled over)` : ""}
-          </span>
+          <span style={{ fontSize: 40, fontWeight: 700, color: swipesLeft < 4 ? "#e74c3c" : "#2774AE", lineHeight: 1 }}>{swipesLeft}</span>
+          <span style={{ fontSize: 13, color: "#aaa" }}>left of {totalAvail}{rollover > 0 ? ` (incl. ${rollover} rolled over)` : ""}</span>
         </div>
         <div style={{ margin: "10px 0 4px", height: 7, background: "#eee", borderRadius: 4 }}>
           <div style={{ height: "100%", borderRadius: 4, background: swipesLeft < 4 ? "#e74c3c" : "#2774AE",
@@ -447,7 +466,6 @@ function Stats({ meals }) {
         <div style={{ fontSize: 11, color: "#bbb" }}>{swipesUsed} used · resets next Monday</div>
       </div>
 
-      {/* Totals */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={cardStyle}>
           <div style={{ fontSize: 11, color: "#aaa" }}>Total meals</div>
@@ -459,7 +477,6 @@ function Stats({ meals }) {
         </div>
       </div>
 
-      {/* Weekly usage last 4 weeks */}
       <div style={cardStyle}>
         <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>Weekly swipe usage</div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 60 }}>
@@ -467,15 +484,13 @@ function Stats({ meals }) {
             <div key={label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#555" }}>{used}</div>
               <div style={{ width: "100%", background: "#2774AE", borderRadius: "4px 4px 0 0",
-                height: `${Math.max(4, (used / WEEK_SWIPES) * 52)}px`, transition: "height .4s",
-                opacity: label === "This week" ? 1 : 0.45 }} />
+                height: `${Math.max(4, (used / WEEK_SWIPES) * 52)}px`, opacity: label === "This week" ? 1 : 0.4 }} />
               <div style={{ fontSize: 10, color: "#bbb" }}>{label}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Location rankings */}
       {locAvg.length > 0 && (
         <div style={cardStyle}>
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>Location rankings</div>
@@ -494,7 +509,6 @@ function Stats({ meals }) {
         </div>
       )}
 
-      {/* Period breakdown */}
       {meals.length > 0 && (
         <div style={cardStyle}>
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>When you eat</div>
@@ -516,23 +530,21 @@ function Stats({ meals }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Locations Manager (settings tab)
+// Locations Manager
 // ─────────────────────────────────────────────────────────────────────────────
 function LocationsManager({ customLocations, onAdd, onRemove }) {
   const [showAdd, setShowAdd] = useState(false);
   return (
     <div>
       <div style={{ fontSize: 13, color: "#888", marginBottom: 16, lineHeight: 1.5 }}>
-        Default UCLA dining locations are always available. Add any spot — cafés, trucks, off-campus — and it'll show up when logging meals.
+        Default UCLA dining locations are always available. Add any spot — cafés, trucks, off-campus — and it'll appear when logging meals.
       </div>
-
       <div style={{ ...cardStyle, marginBottom: 12 }}>
         <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>Default locations</div>
         {DEFAULT_LOCATIONS.map(loc => (
           <div key={loc} style={{ fontSize: 14, padding: "7px 0", borderBottom: "1px solid #f5f5f5", color: "#333" }}>{loc}</div>
         ))}
       </div>
-
       {customLocations.length > 0 && (
         <div style={{ ...cardStyle, marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>Your locations</div>
@@ -544,16 +556,9 @@ function LocationsManager({ customLocations, onAdd, onRemove }) {
           ))}
         </div>
       )}
-
-      <button onClick={() => setShowAdd(true)} style={{ ...primaryBtnStyle, width: "100%" }}>
-        + Add a location
-      </button>
-
+      <button onClick={() => setShowAdd(true)} style={{ ...primaryBtnStyle, width: "100%" }}>+ Add a location</button>
       {showAdd && (
-        <AddLocationModal
-          onClose={() => setShowAdd(false)}
-          onAdd={name => { onAdd(name); setShowAdd(false); }}
-        />
+        <AddLocationModal onClose={() => setShowAdd(false)} onAdd={name => { onAdd(name); setShowAdd(false); }} />
       )}
     </div>
   );
@@ -567,32 +572,25 @@ export default function App() {
   const [showLog, setShowLog] = useState(false);
   const [tab, setTab] = useState("log");
   const [toast, setToast] = useState(null);
+  const { isMobile, isTablet, isDesktop } = useBreakpoint();
 
   function update(next) { setData(next); persist(next); }
-
   function handleSave(meal) {
     update({ ...data, meals: [meal, ...data.meals] });
     setShowLog(false);
     setToast("Meal logged ✓");
     setTimeout(() => setToast(null), 2500);
   }
-
-  function handleDelete(id) {
-    update({ ...data, meals: data.meals.filter(m => m.id !== id) });
-  }
-
+  function handleDelete(id) { update({ ...data, meals: data.meals.filter(m => m.id !== id) }); }
   function handleAddLocation(name) {
-    if (!data.customLocations.includes(name) && !DEFAULT_LOCATIONS.includes(name)) {
+    if (!data.customLocations.includes(name) && !DEFAULT_LOCATIONS.includes(name))
       update({ ...data, customLocations: [...data.customLocations, name] });
-    }
   }
-
   function handleRemoveLocation(name) {
     update({ ...data, customLocations: data.customLocations.filter(l => l !== name) });
   }
 
   const allLocations = [...DEFAULT_LOCATIONS, ...(data.customLocations || [])];
-
   const rollover = computeRollover(data.meals);
   const curWeek = getWeekStart();
   const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
@@ -602,24 +600,156 @@ export default function App() {
   }).length;
   const swipesLeft = Math.max(0, WEEK_SWIPES + rollover - thisWeekUsed);
 
-  // Group meals by date
-  const grouped = {};
-  data.meals.forEach(m => {
-    const dk = m.timestamp.split("T")[0];
-    if (!grouped[dk]) grouped[dk] = [];
-    grouped[dk].push(m);
-  });
-  const sortedDays = Object.keys(grouped).sort((a,b) => b.localeCompare(a));
-
   const TABS = [
     { id: "log", label: "Meal Log" },
     { id: "stats", label: "Stats" },
     { id: "locations", label: "Locations" },
   ];
 
+  // ── Desktop layout ──────────────────────────────────────────────────────────
+  if (isDesktop) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#eef2f7", fontFamily: "'Inter', -apple-system, sans-serif" }}>
+        {/* Top nav bar */}
+        <div style={{ background: "#2774AE", padding: "0 40px", display: "flex", alignItems: "center",
+          justifyContent: "space-between", height: 64, position: "sticky", top: 0, zIndex: 10,
+          boxShadow: "0 2px 12px rgba(0,0,0,.15)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 22 }}>🍽</span>
+            <div>
+              <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10, letterSpacing: 1.5 }}>UCLA DINING</div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, lineHeight: 1.1 }}>My Meals</div>
+            </div>
+          </div>
+          {/* Nav links */}
+          <div style={{ display: "flex", gap: 4 }}>
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{
+                border: "none", borderRadius: 8, padding: "7px 18px", cursor: "pointer",
+                fontSize: 14, fontWeight: 500,
+                background: tab === t.id ? "rgba(255,255,255,.2)" : "transparent",
+                color: tab === t.id ? "#fff" : "rgba(255,255,255,.65)",
+                transition: "all .15s",
+              }}>{t.label}</button>
+            ))}
+          </div>
+          {/* Swipe count */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: 22, lineHeight: 1 }}>{swipesLeft}</div>
+              <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10 }}>swipes left this week</div>
+            </div>
+            <button onClick={() => setShowLog(true)} style={{
+              background: "#fff", color: "#2774AE", border: "none", borderRadius: 10,
+              padding: "9px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+              marginLeft: 8, whiteSpace: "nowrap",
+            }}>+ Log a meal</button>
+          </div>
+        </div>
+
+        {/* Two-column body */}
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 40px", display: "grid",
+          gridTemplateColumns: tab === "log" ? "1fr 380px" : "1fr", gap: 28 }}>
+
+          {tab === "log" && (
+            <>
+              {/* Left: meal log */}
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Recent meals</div>
+                <MealLog meals={data.meals} onDelete={handleDelete} onLogNew={() => setShowLog(true)} isDesktop={true} />
+              </div>
+              {/* Right: stats sidebar */}
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>This week</div>
+                <Stats meals={data.meals} />
+              </div>
+            </>
+          )}
+
+          {tab === "stats" && (
+            <div style={{ maxWidth: 800 }}>
+              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Stats & Trends</div>
+              <Stats meals={data.meals} />
+            </div>
+          )}
+
+          {tab === "locations" && (
+            <div style={{ maxWidth: 600 }}>
+              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Manage Locations</div>
+              <LocationsManager
+                customLocations={data.customLocations || []}
+                onAdd={handleAddLocation}
+                onRemove={handleRemoveLocation}
+              />
+            </div>
+          )}
+        </div>
+
+        {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
+          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={true} />}
+        {toast && <Toast msg={toast} />}
+      </div>
+    );
+  }
+
+  // ── Tablet layout ───────────────────────────────────────────────────────────
+  if (isTablet) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#eef2f7", fontFamily: "'Inter', -apple-system, sans-serif" }}>
+        <div style={{ background: "#2774AE", padding: "16px 24px 0", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>🍽</span>
+              <div>
+                <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5 }}>UCLA DINING</div>
+                <div style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>My Meals</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ color: "#fff", fontWeight: 700, fontSize: 24 }}>{swipesLeft}</div>
+                <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10 }}>swipes left</div>
+              </div>
+              <button onClick={() => setShowLog(true)} style={{
+                background: "#fff", color: "#2774AE", border: "none", borderRadius: 10,
+                padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              }}>+ Log</button>
+            </div>
+          </div>
+          <div style={{ display: "flex", background: "rgba(255,255,255,.12)", borderRadius: "8px 8px 0 0", overflow: "hidden" }}>
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{
+                flex: 1, padding: "10px 0", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
+                background: tab === t.id ? "#fff" : "transparent",
+                color: tab === t.id ? "#2774AE" : "rgba(255,255,255,.75)",
+                transition: "all .15s",
+              }}>{t.label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ padding: "20px 24px 40px", maxWidth: 900, margin: "0 auto" }}>
+          {tab === "log" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
+              <MealLog meals={data.meals} onDelete={handleDelete} onLogNew={() => setShowLog(true)} isDesktop={true} />
+              <Stats meals={data.meals} />
+            </div>
+          )}
+          {tab === "stats" && <Stats meals={data.meals} />}
+          {tab === "locations" && (
+            <LocationsManager customLocations={data.customLocations || []}
+              onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+          )}
+        </div>
+        {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
+          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
+        {toast && <Toast msg={toast} />}
+      </div>
+    );
+  }
+
+  // ── Mobile layout ───────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: "100vh", background: "#f5f7fa", fontFamily: "'Inter', -apple-system, sans-serif", maxWidth: 480, margin: "0 auto" }}>
-      {/* Header */}
+    <div style={{ minHeight: "100vh", background: "#f5f7fa", fontFamily: "'Inter', -apple-system, sans-serif" }}>
       <div style={{ background: "#2774AE", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16 }}>
           <div>
@@ -631,78 +761,47 @@ export default function App() {
             <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10, marginTop: 2 }}>swipes left</div>
           </div>
         </div>
-        {/* Tabs */}
         <div style={{ display: "flex", background: "rgba(255,255,255,.12)", borderRadius: "8px 8px 0 0", overflow: "hidden" }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               flex: 1, padding: "10px 0", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
               background: tab === t.id ? "#fff" : "transparent",
               color: tab === t.id ? "#2774AE" : "rgba(255,255,255,.75)",
-              transition: "all .15s", borderRadius: tab === t.id ? "6px 6px 0 0" : 0,
+              transition: "all .15s",
             }}>{t.label}</button>
           ))}
         </div>
       </div>
 
-      {/* Body */}
       <div style={{ padding: "16px 16px 110px" }}>
         {tab === "log" && (
-          sortedDays.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "70px 20px", color: "#bbb" }}>
-              <div style={{ fontSize: 52, marginBottom: 12 }}>🍽</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: "#888" }}>No meals logged yet</div>
-              <div style={{ fontSize: 13, marginTop: 6 }}>Hit the button below to track your first meal</div>
-            </div>
-          ) : sortedDays.map(dk => (
-            <div key={dk}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#bbb", letterSpacing: .5, margin: "16px 0 8px" }}>
-                {fmtDate(dk + "T12:00:00")}
-              </div>
-              {grouped[dk].map(m => <MealCard key={m.id} meal={m} onDelete={handleDelete} />)}
-            </div>
-          ))
+          <MealLog meals={data.meals} onDelete={handleDelete} onLogNew={() => setShowLog(true)} isDesktop={false} />
         )}
         {tab === "stats" && <Stats meals={data.meals} />}
         {tab === "locations" && (
-          <LocationsManager
-            customLocations={data.customLocations || []}
-            onAdd={handleAddLocation}
-            onRemove={handleRemoveLocation}
-          />
+          <LocationsManager customLocations={data.customLocations || []}
+            onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
         )}
       </div>
 
-      {/* FAB — only on log tab */}
-      {tab !== "locations" && (
-        <button onClick={() => setShowLog(true)} style={{
-          position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
-          background: "#2774AE", color: "#fff", border: "none", borderRadius: 30,
-          padding: "14px 34px", fontSize: 15, fontWeight: 600, cursor: "pointer",
-          boxShadow: "0 4px 20px rgba(39,116,174,.5)",
-          display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", zIndex: 20,
-        }}>
-          <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Log a meal
-        </button>
-      )}
-
-      {showLog && (
-        <LogModal
-          onClose={() => setShowLog(false)}
-          onSave={handleSave}
-          allLocations={allLocations}
-          onAddLocation={handleAddLocation}
-        />
-      )}
-
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)",
-          background: "#27AE60", color: "#fff", padding: "10px 22px",
-          borderRadius: 22, fontSize: 14, fontWeight: 500,
-          boxShadow: "0 4px 12px rgba(0,0,0,.18)", zIndex: 30, whiteSpace: "nowrap",
-        }}>{toast}</div>
-      )}
+      {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
+        allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
+      {toast && <Toast msg={toast} />}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Toast
+// ─────────────────────────────────────────────────────────────────────────────
+function Toast({ msg }) {
+  return (
+    <div style={{
+      position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)",
+      background: "#27AE60", color: "#fff", padding: "10px 22px",
+      borderRadius: 22, fontSize: 14, fontWeight: 500,
+      boxShadow: "0 4px 12px rgba(0,0,0,.18)", zIndex: 200, whiteSpace: "nowrap",
+    }}>{msg}</div>
   );
 }
 
