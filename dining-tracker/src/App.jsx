@@ -146,16 +146,18 @@ function computeRegularWeekly(meals, weeklySwipes) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Persistence
 // ─────────────────────────────────────────────────────────────────────────────
-const STORAGE_KEY = "ucla_dining_v3";
+const STORAGE_KEY = "ucla_dining_v4";
 function load() {
   try {
-    // Try v3 first, fall back to v2 (migrate old data)
-    let raw = localStorage.getItem("ucla_dining_v3") || localStorage.getItem("ucla_dining_v2");
-    if (!raw) return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN };
+    let raw = localStorage.getItem("ucla_dining_v4")
+      || localStorage.getItem("ucla_dining_v3")
+      || localStorage.getItem("ucla_dining_v2");
+    if (!raw) return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {} };
     const parsed = JSON.parse(raw);
-    if (!parsed.mealPlan) parsed.mealPlan = DEFAULT_PLAN; // migrate
+    if (!parsed.mealPlan) parsed.mealPlan = DEFAULT_PLAN;
+    if (!parsed.rankings) parsed.rankings = {};
     return parsed;
-  } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN }; }
+  } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {} }; }
 }
 function persist(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
@@ -739,16 +741,74 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
 
+  // Ranking state
+  const [rankQueue, setRankQueue] = useState([]); // items waiting to be ranked
+  const [rankingItem, setRankingItem] = useState(null); // current item being ranked
+
   function update(next) { setData(next); persist(next); }
+
   function handleSave(meal) {
-    update({ ...data, meals: [meal, ...data.meals] });
+    const newData = { ...data, meals: [meal, ...data.meals] };
+    update(newData);
     setShowLog(false);
-    setToast("Meal logged ✓");
-    setTimeout(() => setToast(null), 2500);
+    // Queue each food×location combo for ranking (only if has foods)
+    const candidates = getCandidatesFromMeal(meal);
+    if (candidates.length > 0) {
+      // Ensure all candidates exist in rankings before queuing
+      const updatedRankings = { ...newData.rankings };
+      candidates.forEach(c => {
+        if (!updatedRankings[c.key]) {
+          updatedRankings[c.key] = { ...c, score: 1000, wins: 0, losses: 0, comparisons: 0 };
+        }
+      });
+      update({ ...newData, rankings: updatedRankings });
+      setRankQueue(candidates);
+      setRankingItem(candidates[0]);
+    } else {
+      setToast("Meal logged ✓");
+      setTimeout(() => setToast(null), 2500);
+    }
   }
-  function handleEdit(meal) {
-    setEditingMeal(meal);
+
+  function handleRankDone(updatedRankings) {
+    const remaining = rankQueue.slice(1);
+    const nextData = { ...data, rankings: updatedRankings };
+    update(nextData);
+    if (remaining.length > 0) {
+      setRankQueue(remaining);
+      setRankingItem(remaining[0]);
+    } else {
+      setRankingItem(null);
+      setRankQueue([]);
+      setTab("top");
+      setToast("Rankings updated ✓");
+      setTimeout(() => setToast(null), 2500);
+    }
   }
+
+  function handleRankSkip() {
+    const remaining = rankQueue.slice(1);
+    if (remaining.length > 0) {
+      setRankQueue(remaining);
+      setRankingItem(remaining[0]);
+    } else {
+      setRankingItem(null);
+      setRankQueue([]);
+      setToast("Meal logged ✓");
+      setTimeout(() => setToast(null), 2500);
+    }
+  }
+
+  function handleManualCompare() {
+    // Pick two random items for a manual comparison
+    const sorted = getSortedRankings(data.rankings || {});
+    if (sorted.length < 2) return;
+    const a = sorted[Math.floor(Math.random() * sorted.length)];
+    setRankingItem(a);
+    setRankQueue([a]);
+  }
+
+  function handleEdit(meal) { setEditingMeal(meal); }
   function handleUpdate(updatedMeal) {
     update({ ...data, meals: data.meals.map(m => m.id === updatedMeal.id ? updatedMeal : m) });
     setEditingMeal(null);
@@ -785,6 +845,7 @@ export default function App() {
 
   const TABS = [
     { id: "log", label: "Meal Log" },
+    { id: "top", label: "Top Meals" },
     { id: "stats", label: "Stats" },
     { id: "locations", label: "Locations" },
     { id: "settings", label: "Settings" },
@@ -867,6 +928,12 @@ export default function App() {
               />
             </div>
           )}
+          {tab === "top" && (
+            <div style={{ maxWidth: 700 }}>
+              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>🏆 Top Meals</div>
+              <TopMeals rankings={data.rankings || {}} onStartComparison={handleManualCompare} />
+            </div>
+          )}
           {tab === "settings" && (
             <div style={{ maxWidth: 600 }}>
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Meal Plan</div>
@@ -879,6 +946,7 @@ export default function App() {
           allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={true} />}
         {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
           allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={true} editMeal={editingMeal} />}
+        {rankingItem && <RankerModal newItem={rankingItem} rankings={data.rankings || {}} onDone={handleRankDone} onSkip={handleRankSkip} isDesktop={true} />}
         {toast && <Toast msg={toast} />}
       </div>
     );
@@ -926,6 +994,12 @@ export default function App() {
               <Stats meals={data.meals} mealPlan={mealPlan} />
             </div>
           )}
+          {tab === "top" && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>🏆 Top Meals</div>
+              <TopMeals rankings={data.rankings || {}} onStartComparison={handleManualCompare} />
+            </div>
+          )}
           {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
           {tab === "locations" && (
             <LocationsManager customLocations={data.customLocations || []}
@@ -942,6 +1016,7 @@ export default function App() {
           allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
         {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
           allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} editMeal={editingMeal} />}
+        {rankingItem && <RankerModal newItem={rankingItem} rankings={data.rankings || {}} onDone={handleRankDone} onSkip={handleRankSkip} isDesktop={false} />}
         {toast && <Toast msg={toast} />}
       </div>
     );
@@ -978,6 +1053,12 @@ export default function App() {
           <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={false} />
         )}
         {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
+        {tab === "top" && (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>🏆 Top Meals</div>
+            <TopMeals rankings={data.rankings || {}} onStartComparison={handleManualCompare} />
+          </div>
+        )}
         {tab === "locations" && (
           <LocationsManager customLocations={data.customLocations || []}
             onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
@@ -994,6 +1075,7 @@ export default function App() {
         allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
       {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
         allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} editMeal={editingMeal} />}
+      {rankingItem && <RankerModal newItem={rankingItem} rankings={data.rankings || {}} onDone={handleRankDone} onSkip={handleRankSkip} isDesktop={false} />}
       {toast && <Toast msg={toast} />}
     </div>
   );
