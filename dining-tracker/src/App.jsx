@@ -212,20 +212,7 @@ function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stars
-// ─────────────────────────────────────────────────────────────────────────────
-function Stars({ value, onChange, size = 22 }) {
-  return (
-    <div style={{ display: "flex", gap: 3 }}>
-      {[1,2,3,4,5].map(n => (
-        <span key={n} onClick={() => onChange?.(n)}
-          style={{ fontSize: size, cursor: onChange ? "pointer" : "default",
-            color: n <= value ? "#FFB800" : "#ddd", userSelect: "none", lineHeight: 1 }}>★</span>
-      ))}
-    </div>
-  );
-}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Add Location Modal
@@ -269,7 +256,6 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
   })());
   const [foods, setFoods] = useState(editMeal?.foods || []);
   const [customFood, setCustomFood] = useState("");
-  const [rating, setRating] = useState(editMeal?.rating || 0);
   const [note, setNote] = useState(editMeal?.note || "");
   const [showAddLoc, setShowAddLoc] = useState(false);
   const customFoodRef = useRef();
@@ -284,19 +270,16 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
   }
 
   const canNext1 = location && period;
-  const canNext2 = foods.length > 0;
+  const canSave = foods.length > 0;
   const stepLabels = isEditing
-    ? ["EDIT LOCATION & TIME", "EDIT FOODS", "EDIT RATING & NOTES"]
-    : ["WHERE & WHEN", "WHAT DID YOU EAT", "HOW WAS IT"];
+    ? ["EDIT LOCATION & TIME", "EDIT FOODS & NOTES"]
+    : ["WHERE & WHEN", "WHAT DID YOU EAT"];
 
-  // On desktop, modal is centered and floats
   const desktopModalOverride = isDesktop ? {
     borderRadius: 16, maxWidth: 560, margin: "auto",
     maxHeight: "80vh", boxShadow: "0 20px 60px rgba(0,0,0,.2)",
   } : {};
-  const desktopOverlayOverride = isDesktop ? {
-    alignItems: "center",
-  } : {};
+  const desktopOverlayOverride = isDesktop ? { alignItems: "center" } : {};
 
   return (
     <>
@@ -308,8 +291,8 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
                 {stepLabels[step - 1]}
               </div>
               <div style={{ display: "flex", gap: 5 }}>
-                {[1,2,3].map(s => (
-                  <div key={s} style={{ width: 24, height: 3, borderRadius: 2,
+                {[1,2].map(s => (
+                  <div key={s} style={{ width: 32, height: 3, borderRadius: 2,
                     background: s <= step ? "#2774AE" : "#e5e5e5", transition: "background .2s" }} />
                 ))}
               </div>
@@ -360,22 +343,10 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
                   ))}
                 </div>
               )}
-            </div>
-          )}
-
-          {step === 3 && (
-            <div style={{ flex: 1 }}>
-              <div style={fieldLabel}>Rate this meal</div>
-              <Stars value={rating} onChange={setRating} size={38} />
-              <div style={{ ...fieldLabel, marginTop: 20 }}>Notes (optional)</div>
+              <div style={{ ...fieldLabel, marginTop: 16 }}>Notes (optional)</div>
               <textarea value={note} onChange={e => setNote(e.target.value)}
                 placeholder="Best station, long line, something you'd order again…"
-                style={{ ...inputStyle, width: "100%", boxSizing: "border-box", height: 80, resize: "none" }} />
-              <div style={{ marginTop: 14, padding: 14, background: "#f0f7ff", borderRadius: 10, fontSize: 13, color: "#444", lineHeight: 1.5 }}>
-                <strong>{location}</strong> · {period}<br />
-                {fmtDate(new Date().toISOString())} · {fmtTime(new Date().toISOString())}<br />
-                <span style={{ color: "#666" }}>{foods.join(", ")}</span>
-              </div>
+                style={{ ...inputStyle, width: "100%", boxSizing: "border-box", height: 72, resize: "none" }} />
             </div>
           )}
 
@@ -386,20 +357,22 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
                 ← Back
               </button>
             )}
-            {step < 3 ? (
-              <button onClick={() => setStep(s => s + 1)}
-                disabled={step === 1 ? !canNext1 : !canNext2}
-                style={{ ...primaryBtnStyle, flex: 2, opacity: (step === 1 ? !canNext1 : !canNext2) ? 0.4 : 1 }}>
+            {step < 2 ? (
+              <button onClick={() => setStep(2)}
+                disabled={!canNext1}
+                style={{ ...primaryBtnStyle, flex: 2, opacity: canNext1 ? 1 : 0.4 }}>
                 Next →
               </button>
             ) : (
-              <button onClick={() => onSave({
+              <button
+                disabled={!canSave}
+                onClick={() => onSave({
                   id: editMeal?.id || Date.now(),
                   timestamp: editMeal?.timestamp || new Date().toISOString(),
-                  location, period, foods, rating, note,
+                  location, period, foods, note,
                 })}
-                style={{ ...primaryBtnStyle, flex: 2, background: "#27AE60" }}>
-                {isEditing ? "Save changes ✓" : "Save meal ✓"}
+                style={{ ...primaryBtnStyle, flex: 2, background: "#27AE60", opacity: canSave ? 1 : 0.4 }}>
+                {isEditing ? "Save changes ✓" : "Save & Rank →"}
               </button>
             )}
           </div>
@@ -425,17 +398,16 @@ function MealCard({ meal, onDelete, onEdit }) {
       transition: "box-shadow .15s",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>{meal.location}</div>
           <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>
             {meal.period} · {fmtDate(meal.timestamp)} · {fmtTime(meal.timestamp)}
           </div>
         </div>
-        <Stars value={meal.rating} size={13} />
       </div>
       {meal.foods.length > 0 && (
         <div style={{ fontSize: 13, color: "#555", marginTop: 7, lineHeight: 1.4 }}>
-          {open ? meal.foods.join(", ") : meal.foods.slice(0, 3).join(", ") + (meal.foods.length > 3 ? ` +${meal.foods.length - 3} more` : "")}
+          {open ? meal.foods.join(", ") : meal.foods.slice(0, 3).join(", ") + (meal.foods.length > 3 ? " +" + (meal.foods.length - 3) + " more" : "")}
         </div>
       )}
       {open && meal.note && (
@@ -667,7 +639,7 @@ function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // TopMeals — leaderboard
 // ─────────────────────────────────────────────────────────────────────────────
-function TopMeals({ rankings, onStartComparison }) {
+function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
   const [filter, setFilter] = useState("all");
   const sorted = getSortedRankings(rankings);
   const locations = [...new Set(sorted.map(r => r.location))];
@@ -723,6 +695,10 @@ function TopMeals({ rankings, onStartComparison }) {
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: globalRank === 0 ? "#FFB800" : "#2774AE" }}>{item.score}</div>
                   <div style={{ fontSize: 10, color: "#bbb", marginTop: 2 }}>{item.wins || 0}W {item.losses || 0}L</div>
+                  <button onClick={e => { e.stopPropagation(); onDeleteRanking(item); }}
+                    style={{ ...ghostBtnStyle, fontSize: 10, color: "#e74c3c", marginTop: 4, display: "block" }}>
+                    Remove
+                  </button>
                 </div>
               </div>
             </div>
@@ -823,17 +799,6 @@ function Stats({ meals, mealPlan }) {
 
   const activeQ = getActiveQuarter(today);
 
-  const locRatings = {};
-  meals.forEach(m => {
-    if (m.rating > 0) {
-      if (!locRatings[m.location]) locRatings[m.location] = [];
-      locRatings[m.location].push(m.rating);
-    }
-  });
-  const locAvg = Object.entries(locRatings)
-    .map(([loc, rs]) => ({ loc, avg: rs.reduce((a,b) => a+b,0)/rs.length, count: rs.length }))
-    .sort((a,b) => b.avg - a.avg);
-
   const byPeriod = {};
   MEAL_PERIODS.forEach(p => byPeriod[p] = meals.filter(m => m.period === p).length);
 
@@ -930,24 +895,6 @@ function Stats({ meals, mealPlan }) {
           ))}
         </div>
       </div>
-
-      {locAvg.length > 0 && (
-        <div style={cardStyle}>
-          <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>Location rankings</div>
-          {locAvg.map(({ loc, avg, count }) => (
-            <div key={loc} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{loc}</div>
-                <div style={{ fontSize: 11, color: "#bbb" }}>{count} visit{count !== 1 ? "s" : ""}</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <Stars value={Math.round(avg)} size={12} />
-                <span style={{ fontSize: 12, color: "#666" }}>{avg.toFixed(1)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {meals.length > 0 && (
         <div style={cardStyle}>
@@ -1073,6 +1020,19 @@ export default function App() {
     }
   }
 
+  function handleDeleteRanking(item) {
+    // Remove ranking entry and all meals that include this food×location combo
+    const { food, location, key } = item;
+    const updatedRankings = { ...data.rankings };
+    delete updatedRankings[key];
+    const updatedMeals = data.meals.filter(m =>
+      !(m.location === location && (m.foods || []).includes(food))
+    );
+    update({ ...data, rankings: updatedRankings, meals: updatedMeals });
+    setToast("Removed from rankings and log");
+    setTimeout(() => setToast(null), 2500);
+  }
+
   function handleManualCompare() {
     // Pick two random items for a manual comparison
     const sorted = getSortedRankings(data.rankings || {});
@@ -1089,7 +1049,21 @@ export default function App() {
     setToast("Meal updated ✓");
     setTimeout(() => setToast(null), 2500);
   }
-  function handleDelete(id) { update({ ...data, meals: data.meals.filter(m => m.id !== id) }); }
+  function handleDelete(id) {
+    const meal = data.meals.find(m => m.id === id);
+    const remainingMeals = data.meals.filter(m => m.id !== id);
+    let updatedRankings = { ...data.rankings };
+    if (meal) {
+      // Remove ranking entry only if no other meal shares the same food×location combo
+      getCandidatesFromMeal(meal).forEach(({ key, food, location }) => {
+        const stillExists = remainingMeals.some(m =>
+          m.location === location && (m.foods || []).includes(food)
+        );
+        if (!stillExists) delete updatedRankings[key];
+      });
+    }
+    update({ ...data, meals: remainingMeals, rankings: updatedRankings });
+  }
   function handleAddLocation(name) {
     if (!data.customLocations.includes(name) && !DEFAULT_LOCATIONS.includes(name))
       update({ ...data, customLocations: [...data.customLocations, name] });
@@ -1205,7 +1179,7 @@ export default function App() {
           {tab === "top" && (
             <div style={{ maxWidth: 700 }}>
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>🏆 Top Meals</div>
-              <TopMeals rankings={data.rankings || {}} onStartComparison={handleManualCompare} />
+              <TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} />
             </div>
           )}
           {tab === "settings" && (
@@ -1271,7 +1245,7 @@ export default function App() {
           {tab === "top" && (
             <div>
               <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>🏆 Top Meals</div>
-              <TopMeals rankings={data.rankings || {}} onStartComparison={handleManualCompare} />
+              <TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} />
             </div>
           )}
           {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
@@ -1330,7 +1304,7 @@ export default function App() {
         {tab === "top" && (
           <div>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>🏆 Top Meals</div>
-            <TopMeals rankings={data.rankings || {}} onStartComparison={handleManualCompare} />
+            <TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} />
           </div>
         )}
         {tab === "locations" && (
