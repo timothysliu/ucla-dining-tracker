@@ -45,6 +45,47 @@ const COMMON_FOODS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Shared styles — defined early so all components can reference them
+// ─────────────────────────────────────────────────────────────────────────────
+const overlayStyle = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,.5)",
+  display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100,
+};
+const modalStyle = {
+  background: "#fff", borderRadius: "20px 20px 0 0",
+  padding: "24px 20px 32px", width: "100%", maxWidth: 480,
+  maxHeight: "87vh", display: "flex", flexDirection: "column",
+};
+const chipGrid = { display: "flex", flexWrap: "wrap", gap: 8 };
+const chipStyle = (active, dashed = false) => ({
+  border: dashed ? "1.5px dashed #bbb" : active ? "2px solid #2774AE" : "1.5px solid #e5e5e5",
+  background: active ? "#eef5fb" : "#fff",
+  color: active ? "#2774AE" : dashed ? "#888" : "#444",
+  borderRadius: 20, padding: "7px 14px", fontSize: 13, cursor: "pointer",
+  fontWeight: active ? 600 : 400, transition: "all .15s",
+});
+const fieldLabel = { fontSize: 11, fontWeight: 700, color: "#aaa", letterSpacing: .5, marginBottom: 10, marginTop: 0 };
+const primaryBtnStyle = {
+  background: "#2774AE", color: "#fff", border: "none", borderRadius: 12,
+  padding: "13px 0", fontSize: 15, fontWeight: 600, cursor: "pointer",
+};
+const ghostBtnStyle = { background: "none", border: "none", cursor: "pointer", color: "#888", padding: 0, fontFamily: "inherit" };
+const inputStyle = {
+  border: "1.5px solid #e5e5e5", borderRadius: 10, padding: "10px 12px",
+  fontSize: 13, outline: "none", fontFamily: "inherit",
+};
+const addBtnStyle = {
+  background: "#2774AE", color: "#fff", border: "none", borderRadius: 10,
+  padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+};
+const tagStyle = {
+  background: "#eef5fb", color: "#2774AE", borderRadius: 16, padding: "4px 10px", fontSize: 12, fontWeight: 500,
+};
+const cardStyle = {
+  background: "#fff", borderRadius: 14, padding: "15px 16px", boxShadow: "0 1px 5px rgba(0,0,0,.07)",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Responsive breakpoint hook
 // ─────────────────────────────────────────────────────────────────────────────
 function useBreakpoint() {
@@ -1095,43 +1136,3 @@ function Toast({ msg }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared styles
-// ─────────────────────────────────────────────────────────────────────────────
-const overlayStyle = {
-  position: "fixed", inset: 0, background: "rgba(0,0,0,.5)",
-  display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100,
-};
-const modalStyle = {
-  background: "#fff", borderRadius: "20px 20px 0 0",
-  padding: "24px 20px 32px", width: "100%", maxWidth: 480,
-  maxHeight: "87vh", display: "flex", flexDirection: "column",
-};
-const chipGrid = { display: "flex", flexWrap: "wrap", gap: 8 };
-const chipStyle = (active, dashed = false) => ({
-  border: dashed ? "1.5px dashed #bbb" : active ? "2px solid #2774AE" : "1.5px solid #e5e5e5",
-  background: active ? "#eef5fb" : "#fff",
-  color: active ? "#2774AE" : dashed ? "#888" : "#444",
-  borderRadius: 20, padding: "7px 14px", fontSize: 13, cursor: "pointer",
-  fontWeight: active ? 600 : 400, transition: "all .15s",
-});
-const fieldLabel = { fontSize: 11, fontWeight: 700, color: "#aaa", letterSpacing: .5, marginBottom: 10, marginTop: 0 };
-const primaryBtnStyle = {
-  background: "#2774AE", color: "#fff", border: "none", borderRadius: 12,
-  padding: "13px 0", fontSize: 15, fontWeight: 600, cursor: "pointer",
-};
-const ghostBtnStyle = { background: "none", border: "none", cursor: "pointer", color: "#888", padding: 0, fontFamily: "inherit" };
-const inputStyle = {
-  border: "1.5px solid #e5e5e5", borderRadius: 10, padding: "10px 12px",
-  fontSize: 13, outline: "none", fontFamily: "inherit",
-};
-const addBtnStyle = {
-  background: "#2774AE", color: "#fff", border: "none", borderRadius: 10,
-  padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-};
-const tagStyle = {
-  background: "#eef5fb", color: "#2774AE", borderRadius: 16, padding: "4px 10px", fontSize: 12, fontWeight: 500,
-};
-const cardStyle = {
-  background: "#fff", borderRadius: 14, padding: "15px 16px", boxShadow: "0 1px 5px rgba(0,0,0,.07)",
-};
