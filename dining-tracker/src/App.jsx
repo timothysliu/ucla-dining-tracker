@@ -1273,6 +1273,12 @@ export default function App() {
               <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
             </div>
           )}
+          {tab === "school" && (
+            <div style={{ maxWidth: 600 }}>
+              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>School</div>
+              <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+            </div>
+          )}
         </div>
 
         {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
@@ -1335,13 +1341,22 @@ export default function App() {
           )}
           {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
           {tab === "locations" && (
-            <LocationsManager customLocations={data.customLocations || []}
-              onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+            <div style={{ maxWidth: 600 }}>
+              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>Locations</div>
+              <LocationsManager customLocations={data.customLocations || []}
+                onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+            </div>
           )}
           {tab === "settings" && (
             <div style={{ maxWidth: 600 }}>
               <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>Meal Plan</div>
               <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+            </div>
+          )}
+          {tab === "school" && (
+            <div style={{ maxWidth: 600 }}>
+              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>School</div>
+              <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
             </div>
           )}
         </div>
@@ -1393,13 +1408,22 @@ export default function App() {
           </div>
         )}
         {tab === "locations" && (
-          <LocationsManager customLocations={data.customLocations || []}
-            onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Locations</div>
+            <LocationsManager customLocations={data.customLocations || []}
+              onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+          </div>
         )}
         {tab === "settings" && (
           <div>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Meal Plan</div>
             <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+          </div>
+        )}
+        {tab === "school" && (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>School</div>
+            <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
           </div>
         )}
       </div>
