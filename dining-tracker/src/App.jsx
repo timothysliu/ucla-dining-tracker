@@ -50,7 +50,7 @@ const DEFAULT_SCHOOL = "ucla";
 
 // Locations are pulled from SCHOOLS[school].locations dynamically
 
-const MEAL_PERIODS = ["Breakfast", "Lunch", "Dinner", "Late Night"];
+const MEAL_PERIODS = ["Breakfast", "Lunch", "Dinner", "Late Night", "Snack"];
 
 const COMMON_FOODS = [
   "Pizza","Pasta","Salad","Burger","Tacos","Sushi",
@@ -781,7 +781,7 @@ function SchoolSelector({ currentSchool, onChangeSchool }) {
         <div style={{ fontSize: 12, color: "#aaa", fontWeight: 700, marginBottom: 8, letterSpacing: .5 }}>
           COMING SOON
         </div>
-        {["UC Berkeley", "SJSU", "USC", "UCSD"].map(name => (
+        {["UC Berkeley", "SJSU", "UC Irvine", "Caltech"].map(name => (
           <div key={name} style={{ fontSize: 14, color: "#ccc", padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
             {name}
           </div>
