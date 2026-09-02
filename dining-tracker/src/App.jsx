@@ -996,7 +996,7 @@ function Stats({ meals, mealPlan }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Locations Manager
 // ─────────────────────────────────────────────────────────────────────────────
-function LocationsManager({ customLocations, onAdd, onRemove }) {
+function LocationsManager({ defaultLocations, customLocations, onAdd, onRemove }) {
   const [showAdd, setShowAdd] = useState(false);
   return (
     <div>
@@ -1005,7 +1005,7 @@ function LocationsManager({ customLocations, onAdd, onRemove }) {
       </div>
       <div style={{ ...cardStyle, marginBottom: 12 }}>
         <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>Default locations</div>
-        {DEFAULT_LOCATIONS.map(loc => (
+        {defaultLocations.map(loc => (
           <div key={loc} style={{ fontSize: 14, padding: "7px 0", borderBottom: "1px solid #f5f5f5", color: "#333" }}>{loc}</div>
         ))}
       </div>
@@ -1255,6 +1255,7 @@ export default function App() {
             <div style={{ maxWidth: 600 }}>
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Manage Locations</div>
               <LocationsManager
+                defaultLocations={school.locations}
                 customLocations={data.customLocations || []}
                 onAdd={handleAddLocation}
                 onRemove={handleRemoveLocation}
@@ -1343,7 +1344,7 @@ export default function App() {
           {tab === "locations" && (
             <div style={{ maxWidth: 600 }}>
               <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>Locations</div>
-              <LocationsManager customLocations={data.customLocations || []}
+              <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
                 onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
             </div>
           )}
@@ -1410,7 +1411,7 @@ export default function App() {
         {tab === "locations" && (
           <div>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Locations</div>
-            <LocationsManager customLocations={data.customLocations || []}
+            <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
               onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
           </div>
         )}
