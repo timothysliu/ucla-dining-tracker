@@ -505,6 +505,239 @@ function MealLog({ meals, onDelete, onEdit, onLogNew, isDesktop }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Stats Panel
 // ─────────────────────────────────────────────────────────────────────────────
+// Ranking Engine — Beli-style binary search + ELO
+// itemKey = "food||location". Each unique food×location combo is ranked.
+// ─────────────────────────────────────────────────────────────────────────────
+function itemKey(food, location) { return food + "||" + location; }
+
+function getSortedRankings(rankings) {
+  return Object.values(rankings).sort((a, b) => b.score - a.score);
+}
+
+function applyComparison(rankings, newItemKey, opponentKey, newWon) {
+  const K = 32;
+  const next = { ...rankings };
+  const a = { ...next[newItemKey] };
+  const b = { ...next[opponentKey] };
+  const ea = 1 / (1 + Math.pow(10, (b.score - a.score) / 400));
+  const eb = 1 - ea;
+  if (newWon) {
+    a.score = Math.round(a.score + K * (1 - ea));
+    b.score = Math.round(b.score + K * (0 - eb));
+    a.wins = (a.wins || 0) + 1; b.losses = (b.losses || 0) + 1;
+  } else {
+    a.score = Math.round(a.score + K * (0 - ea));
+    b.score = Math.round(b.score + K * (1 - eb));
+    a.losses = (a.losses || 0) + 1; b.wins = (b.wins || 0) + 1;
+  }
+  a.comparisons = (a.comparisons || 0) + 1;
+  b.comparisons = (b.comparisons || 0) + 1;
+  next[newItemKey] = a;
+  next[opponentKey] = b;
+  return next;
+}
+
+function getCandidatesFromMeal(meal) {
+  return (meal.foods || []).map(food => ({
+    food, location: meal.location, key: itemKey(food, meal.location)
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RankerModal — binary search comparison UI
+// ─────────────────────────────────────────────────────────────────────────────
+function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop }) {
+  const sorted = getSortedRankings(rankings).filter(r => r.key !== newItem.key);
+  const [lo, setLo] = useState(0);
+  const [hi, setHi] = useState(sorted.length);
+  const [currentRankings, setCurrentRankings] = useState(() => {
+    if (!rankings[newItem.key]) {
+      return { ...rankings, [newItem.key]: { ...newItem, score: 1000, wins: 0, losses: 0, comparisons: 0 } };
+    }
+    return rankings;
+  });
+  const [done, setDone] = useState(sorted.length === 0);
+
+  const midIdx = Math.floor((lo + hi) / 2);
+  const opponent = sorted[midIdx];
+  const totalSteps = Math.max(1, Math.ceil(Math.log2(sorted.length + 1)));
+  const currentStep = totalSteps - Math.ceil(Math.log2(Math.max(1, hi - lo + 1)));
+
+  function handleChoice(newWon) {
+    const updated = applyComparison(currentRankings, newItem.key, opponent.key, newWon);
+    setCurrentRankings(updated);
+    const newLo = newWon ? lo : midIdx + 1;
+    const newHi = newWon ? midIdx : hi;
+    if (newLo >= newHi) {
+      setDone(true);
+      onDone(updated);
+    } else {
+      setLo(newLo);
+      setHi(newHi);
+    }
+  }
+
+  const centerStyle = isDesktop ? { alignItems: "center" } : {};
+  const modalOverride = isDesktop ? { borderRadius: 16, maxWidth: 500, margin: "auto" } : {};
+
+  if (done || sorted.length === 0) {
+    const finalSorted = getSortedRankings(currentRankings);
+    const rank = finalSorted.findIndex(r => r.key === newItem.key) + 1;
+    const total = finalSorted.length;
+    const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "🍽";
+    return (
+      <div style={{ ...overlayStyle, ...centerStyle }}>
+        <div style={{ ...modalStyle, ...modalOverride, textAlign: "center" }}>
+          <div style={{ fontSize: 52, marginBottom: 8 }}>{medal}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{newItem.food}</div>
+          <div style={{ fontSize: 14, color: "#888", marginBottom: 4 }}>{newItem.location}</div>
+          <div style={{ fontSize: 15, color: "#555", marginBottom: 20 }}>
+            Ranked <strong style={{ color: "#2774AE" }}>#{rank}</strong> of {total}
+          </div>
+          {rank <= 3 && (
+            <div style={{ background: "#f0f7ff", borderRadius: 10, padding: "10px 16px", marginBottom: 20, fontSize: 13, color: "#2774AE" }}>
+              {rank === 1 ? "🔥 New #1 — your top pick!" : rank === 2 ? "⭐ Top 3 — strong choice." : "👍 Top 3!"}
+            </div>
+          )}
+          <button onClick={() => onDone(currentRankings)} style={{ ...primaryBtnStyle, width: "100%" }}>
+            See rankings →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...overlayStyle, ...centerStyle }}>
+      <div style={{ ...modalStyle, ...modalOverride }}>
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 10, letterSpacing: 1.2, color: "#2774AE", fontWeight: 700, marginBottom: 8 }}>RANK THIS MEAL</div>
+          <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>
+            Comparison {Math.min(currentStep + 1, totalSteps)} of ~{totalSteps}
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6 }}>
+            {Array.from({ length: totalSteps }).map((_, i) => (
+              <div key={i} style={{ width: 8, height: 8, borderRadius: "50%",
+                background: i <= currentStep ? "#2774AE" : "#e0e0e0" }} />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ fontSize: 13, color: "#888", textAlign: "center", marginBottom: 12 }}>Which do you prefer?</div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <button onClick={() => handleChoice(true)} style={{
+            border: "2px solid #e5e5e5", borderRadius: 14, padding: "18px 12px",
+            background: "#fff", cursor: "pointer", textAlign: "center", transition: "all .15s",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#2774AE"; e.currentTarget.style.background = "#eef5fb"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e5e5"; e.currentTarget.style.background = "#fff"; }}
+          >
+            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 6, fontWeight: 600 }}>JUST HAD</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#222", marginBottom: 4 }}>{newItem.food}</div>
+            <div style={{ fontSize: 12, color: "#888" }}>{newItem.location}</div>
+          </button>
+          <button onClick={() => handleChoice(false)} style={{
+            border: "2px solid #e5e5e5", borderRadius: 14, padding: "18px 12px",
+            background: "#fff", cursor: "pointer", textAlign: "center", transition: "all .15s",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#e74c3c"; e.currentTarget.style.background = "#fff5f5"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e5e5"; e.currentTarget.style.background = "#fff"; }}
+          >
+            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 6, fontWeight: 600 }}>COMPARED TO</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#222", marginBottom: 4 }}>{opponent.food}</div>
+            <div style={{ fontSize: 12, color: "#888" }}>{opponent.location}</div>
+            <div style={{ fontSize: 11, color: "#bbb", marginTop: 4 }}>
+              #{getSortedRankings(currentRankings).findIndex(r => r.key === opponent.key) + 1} ranked
+            </div>
+          </button>
+        </div>
+
+        <button onClick={onSkip} style={{
+          ...ghostBtnStyle, width: "100%", border: "1.5px solid #e5e5e5",
+          borderRadius: 10, padding: "11px 0", fontSize: 13,
+        }}>
+          Skip ranking
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TopMeals — leaderboard
+// ─────────────────────────────────────────────────────────────────────────────
+function TopMeals({ rankings, onStartComparison }) {
+  const [filter, setFilter] = useState("all");
+  const sorted = getSortedRankings(rankings);
+  const locations = [...new Set(sorted.map(r => r.location))];
+  const filtered = filter === "all" ? sorted : sorted.filter(r => r.location === filter);
+
+  if (sorted.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "70px 20px", color: "#bbb" }}>
+        <div style={{ fontSize: 52, marginBottom: 12 }}>🏆</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: "#888" }}>No rankings yet</div>
+        <div style={{ fontSize: 13, marginTop: 6 }}>Log a meal and rank it to build your list</div>
+      </div>
+    );
+  }
+
+  const medal = (i) => i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
+
+  return (
+    <div>
+      {locations.length > 1 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          <button onClick={() => setFilter("all")} style={chipStyle(filter === "all")}>All</button>
+          {locations.map(loc => (
+            <button key={loc} onClick={() => setFilter(loc)} style={chipStyle(filter === loc)}>{loc}</button>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 8 }}>
+        {filtered.map((item) => {
+          const globalRank = sorted.findIndex(r => r.key === item.key);
+          const m = medal(globalRank);
+          const barWidth = sorted[0].score > 0 ? (item.score / sorted[0].score) * 100 : 0;
+          return (
+            <div key={item.key} style={{
+              background: "#fff", borderRadius: 12, padding: "13px 16px",
+              boxShadow: globalRank < 3 ? "0 2px 8px rgba(39,116,174,.12)" : "0 1px 4px rgba(0,0,0,.07)",
+              border: globalRank === 0 ? "2px solid #FFB800" : globalRank < 3 ? "1.5px solid #e0eaf5" : "1.5px solid transparent",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ minWidth: 36, textAlign: "center" }}>
+                  {m ? <span style={{ fontSize: 24 }}>{m}</span>
+                     : <span style={{ fontSize: 15, fontWeight: 700, color: "#bbb" }}>#{globalRank + 1}</span>}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{item.food}</div>
+                  <div style={{ fontSize: 12, color: "#888", marginTop: 1 }}>{item.location}</div>
+                  <div style={{ marginTop: 6, height: 3, background: "#eee", borderRadius: 2 }}>
+                    <div style={{ height: "100%", borderRadius: 2,
+                      background: globalRank === 0 ? "#FFB800" : "#2774AE",
+                      width: barWidth + "%", transition: "width .4s" }} />
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: globalRank === 0 ? "#FFB800" : "#2774AE" }}>{item.score}</div>
+                  <div style={{ fontSize: 10, color: "#bbb", marginTop: 2 }}>{item.wins || 0}W {item.losses || 0}L</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {sorted.length >= 2 && (
+        <button onClick={onStartComparison} style={{ ...primaryBtnStyle, width: "100%", marginTop: 20 }}>
+          ⚔️ Run a new comparison
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Meal Plan Selector
 // ─────────────────────────────────────────────────────────────────────────────
