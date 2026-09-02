@@ -1179,9 +1179,7 @@ export default function App() {
     { id: "log", label: "Meal Log" },
     { id: "top", label: "Top Meals" },
     { id: "stats", label: "Stats" },
-    { id: "locations", label: "Locations" },
     { id: "settings", label: "Settings" },
-    { id: "school", label: "School" },
   ];
 
   // ── Desktop layout ──────────────────────────────────────────────────────────
@@ -1196,7 +1194,7 @@ export default function App() {
             <span style={{ fontSize: 22 }}>🍽</span>
             <div>
               <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10, letterSpacing: 1.5 }}>SWIPES</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, lineHeight: 1.1 }}>Swipes</div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, lineHeight: 1.1 }}>Swipes {school.name}</div>
             </div>
           </div>
           {/* Nav links */}
@@ -1251,17 +1249,7 @@ export default function App() {
             </div>
           )}
 
-          {tab === "locations" && (
-            <div style={{ maxWidth: 600 }}>
-              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Manage Locations</div>
-              <LocationsManager
-                defaultLocations={school.locations}
-                customLocations={data.customLocations || []}
-                onAdd={handleAddLocation}
-                onRemove={handleRemoveLocation}
-              />
-            </div>
-          )}
+
           {tab === "top" && (
             <div style={{ maxWidth: 700 }}>
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>🏆 Top Meals</div>
@@ -1269,15 +1257,27 @@ export default function App() {
             </div>
           )}
           {tab === "settings" && (
-            <div style={{ maxWidth: 600 }}>
-              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Meal Plan</div>
-              <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
-            </div>
-          )}
-          {tab === "school" && (
-            <div style={{ maxWidth: 600 }}>
-              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>School</div>
-              <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+            <div style={{ maxWidth: 600, display: "grid", gap: 32 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>School</div>
+                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 16 }}>Your school sets the default locations and meal plan options.</div>
+                <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Meal Plan</div>
+                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 16 }}>Controls your weekly swipe budget and rollover logic.</div>
+                <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Locations</div>
+                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 16 }}>Add off-campus spots or custom locations to your log.</div>
+                <LocationsManager
+                  defaultLocations={school.locations}
+                  customLocations={data.customLocations || []}
+                  onAdd={handleAddLocation}
+                  onRemove={handleRemoveLocation}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -1302,7 +1302,7 @@ export default function App() {
               <span style={{ fontSize: 20 }}>🍽</span>
               <div>
                 <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5 }}>SWIPES</div>
-                <div style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>Swipes</div>
+                <div style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>Swipes {school.name}</div>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1341,23 +1341,25 @@ export default function App() {
             </div>
           )}
           {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
-          {tab === "locations" && (
-            <div style={{ maxWidth: 600 }}>
-              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>Locations</div>
-              <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
-                onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
-            </div>
-          )}
+
           {tab === "settings" && (
-            <div style={{ maxWidth: 600 }}>
-              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>Meal Plan</div>
-              <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
-            </div>
-          )}
-          {tab === "school" && (
-            <div style={{ maxWidth: 600 }}>
-              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>School</div>
-              <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+            <div style={{ maxWidth: 600, display: "grid", gap: 28 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>School</div>
+                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 14 }}>Your school sets the default locations and meal plan options.</div>
+                <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Meal Plan</div>
+                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 14 }}>Controls your weekly swipe budget and rollover logic.</div>
+                <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Locations</div>
+                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 14 }}>Add off-campus spots or custom locations.</div>
+                <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
+                  onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+              </div>
             </div>
           )}
         </div>
@@ -1378,7 +1380,7 @@ export default function App() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16 }}>
           <div>
             <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5, marginBottom: 3 }}>SWIPES</div>
-            <div style={{ color: "#fff", fontSize: 24, fontWeight: 700, lineHeight: 1 }}>Swipes</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 700, lineHeight: 1 }}>Swipes {school.name}</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ color: "#fff", fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{swipesLeft}</div>
@@ -1408,23 +1410,25 @@ export default function App() {
             <TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} />
           </div>
         )}
-        {tab === "locations" && (
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Locations</div>
-            <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
-              onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
-          </div>
-        )}
+
         {tab === "settings" && (
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Meal Plan</div>
-            <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
-          </div>
-        )}
-        {tab === "school" && (
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>School</div>
-            <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+          <div style={{ display: "grid", gap: 24 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>School</div>
+              <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>Sets your default locations and meal plan options.</div>
+              <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Meal Plan</div>
+              <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>Controls your weekly swipe budget and rollover.</div>
+              <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Locations</div>
+              <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>Add off-campus spots or custom locations.</div>
+              <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
+                onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
+            </div>
           </div>
         )}
       </div>
