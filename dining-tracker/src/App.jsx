@@ -29,11 +29,26 @@ const MEAL_PLANS = {
 };
 const DEFAULT_PLAN = "19P";
 
-const DEFAULT_LOCATIONS = [
-  "De Neve","Epicuria at Covel","Bruin Plate","Rendezvous",
-  "The Study at Hedrick","Bruin Café","Café 1919",
-  "Epic at Ackerman","Northern Lights Café","Anderson Café","Luvalle Commons",
-];
+// ─────────────────────────────────────────────────────────────────────────────
+// Schools — one entry per supported school
+// ─────────────────────────────────────────────────────────────────────────────
+const SCHOOLS = {
+  ucla: {
+    id: "ucla",
+    name: "UCLA",
+    fullName: "University of California, Los Angeles",
+    color: "#2774AE",
+    plans: ["19P","19R","14P","14R","11P","11R"],
+    locations: [
+      "De Neve","Epicuria at Covel","Bruin Plate","Rendezvous",
+      "The Study at Hedrick","Bruin Café","Café 1919",
+      "Epic at Ackerman","Northern Lights Café","Anderson Café","Luvalle Commons",
+    ],
+  },
+};
+const DEFAULT_SCHOOL = "ucla";
+
+// Locations are pulled from SCHOOLS[school].locations dynamically
 
 const MEAL_PERIODS = ["Breakfast", "Lunch", "Dinner", "Late Night"];
 
@@ -187,18 +202,20 @@ function computeRegularWeekly(meals, weeklySwipes) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Persistence
 // ─────────────────────────────────────────────────────────────────────────────
-const STORAGE_KEY = "ucla_dining_v4";
+const STORAGE_KEY = "swipes_v1";
 function load() {
   try {
-    let raw = localStorage.getItem("ucla_dining_v4")
+    let raw = localStorage.getItem("swipes_v1")
+      || localStorage.getItem("ucla_dining_v4")
       || localStorage.getItem("ucla_dining_v3")
       || localStorage.getItem("ucla_dining_v2");
-    if (!raw) return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {} };
+    if (!raw) return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {}, school: DEFAULT_SCHOOL };
     const parsed = JSON.parse(raw);
     if (!parsed.mealPlan) parsed.mealPlan = DEFAULT_PLAN;
     if (!parsed.rankings) parsed.rankings = {};
+    if (!parsed.school) parsed.school = DEFAULT_SCHOOL;
     return parsed;
-  } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {} }; }
+  } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {}, school: DEFAULT_SCHOOL }; }
 }
 function persist(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
@@ -715,6 +732,66 @@ function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// School Selector
+// ─────────────────────────────────────────────────────────────────────────────
+function SchoolSelector({ currentSchool, onChangeSchool }) {
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6 }}>
+        Select your school. More schools are coming soon — locations and meal plans update automatically.
+      </div>
+      <div style={cardStyle}>
+        <div style={{ fontSize: 12, color: "#2774AE", fontWeight: 700, marginBottom: 12, letterSpacing: .5 }}>
+          SUPPORTED SCHOOLS
+        </div>
+        {Object.values(SCHOOLS).map(school => {
+          const active = currentSchool === school.id;
+          return (
+            <button key={school.id} onClick={() => onChangeSchool(school.id)} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              width: "100%", padding: "14px 16px", marginBottom: 8,
+              border: active ? "2px solid " + school.color : "1.5px solid #e5e5e5",
+              borderRadius: 12, background: active ? "#eef5fb" : "#fff",
+              cursor: "pointer", textAlign: "left",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 10,
+                  background: school.color, display: "flex", alignItems: "center",
+                  justifyContent: "center", fontSize: 18, color: "#fff", fontWeight: 700,
+                }}>
+                  {school.name.slice(0, 2)}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: active ? school.color : "#222" }}>
+                    {school.name}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{school.fullName}</div>
+                  <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>
+                    {school.locations.length} locations · {school.plans.length} meal plans
+                  </div>
+                </div>
+              </div>
+              {active && <span style={{ color: school.color, fontSize: 20 }}>✓</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ ...cardStyle, background: "#f9f9f9", border: "1.5px dashed #e0e0e0" }}>
+        <div style={{ fontSize: 12, color: "#aaa", fontWeight: 700, marginBottom: 8, letterSpacing: .5 }}>
+          COMING SOON
+        </div>
+        {["UC Berkeley", "SJSU", "USC", "UCSD"].map(name => (
+          <div key={name} style={{ fontSize: 14, color: "#ccc", padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+            {name}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Meal Plan Selector
 // ─────────────────────────────────────────────────────────────────────────────
 function MealPlanSelector({ currentPlan, onChangePlan }) {
@@ -723,7 +800,7 @@ function MealPlanSelector({ currentPlan, onChangePlan }) {
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6 }}>
-        Select your UCLA dining plan. <strong>Premier</strong> plans let unused meals roll over week-to-week within the quarter. <strong>Regular</strong> plans reset every week with no rollover.
+        Select your dining plan. <strong>Premier</strong> plans let unused meals roll over week-to-week within the quarter. <strong>Regular</strong> plans reset every week with no rollover.
       </div>
 
       <div style={cardStyle}>
@@ -924,7 +1001,7 @@ function LocationsManager({ customLocations, onAdd, onRemove }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: "#888", marginBottom: 16, lineHeight: 1.5 }}>
-        Default UCLA dining locations are always available. Add any spot — cafés, trucks, off-campus — and it'll appear when logging meals.
+        Your school's dining locations are always available. Add any spot — cafés, trucks, off-campus — and it'll appear when logging meals.
       </div>
       <div style={{ ...cardStyle, marginBottom: 12 }}>
         <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>Default locations</div>
@@ -1072,7 +1149,8 @@ export default function App() {
     update({ ...data, customLocations: data.customLocations.filter(l => l !== name) });
   }
 
-  const allLocations = [...DEFAULT_LOCATIONS, ...(data.customLocations || [])];
+  const school = SCHOOLS[data.school || DEFAULT_SCHOOL];
+  const allLocations = [...school.locations, ...(data.customLocations || [])];
   const mealPlan = data.mealPlan || DEFAULT_PLAN;
   const plan = MEAL_PLANS[mealPlan];
   const { weekly, premier } = plan;
@@ -1084,6 +1162,12 @@ export default function App() {
     return d >= new Date(curWeek) && d < weekEnd;
   }).length;
   const swipesLeft = Math.max(0, (premier ? weekly + rollover : weekly) - thisWeekUsed);
+
+  function handleChangeSchool(schoolId) {
+    update({ ...data, school: schoolId });
+    setToast("School updated to " + SCHOOLS[schoolId].name);
+    setTimeout(() => setToast(null), 2500);
+  }
 
   function handleChangePlan(planId) {
     update({ ...data, mealPlan: planId });
@@ -1097,6 +1181,7 @@ export default function App() {
     { id: "stats", label: "Stats" },
     { id: "locations", label: "Locations" },
     { id: "settings", label: "Settings" },
+    { id: "school", label: "School" },
   ];
 
   // ── Desktop layout ──────────────────────────────────────────────────────────
@@ -1110,8 +1195,8 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 22 }}>🍽</span>
             <div>
-              <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10, letterSpacing: 1.5 }}>UCLA DINING</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, lineHeight: 1.1 }}>My Meals</div>
+              <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10, letterSpacing: 1.5 }}>SWIPES</div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, lineHeight: 1.1 }}>Swipes</div>
             </div>
           </div>
           {/* Nav links */}
@@ -1209,8 +1294,8 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 20 }}>🍽</span>
               <div>
-                <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5 }}>UCLA DINING</div>
-                <div style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>My Meals</div>
+                <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5 }}>SWIPES</div>
+                <div style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>Swipes</div>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1276,8 +1361,8 @@ export default function App() {
       <div style={{ background: "#2774AE", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16 }}>
           <div>
-            <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5, marginBottom: 3 }}>UCLA DINING</div>
-            <div style={{ color: "#fff", fontSize: 24, fontWeight: 700, lineHeight: 1 }}>My Meals</div>
+            <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5, marginBottom: 3 }}>SWIPES</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 700, lineHeight: 1 }}>Swipes</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ color: "#fff", fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{swipesLeft}</div>
