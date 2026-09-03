@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UCLA Academic Calendar
+// UCLA Academic Calendar (Quarter system)
 // ─────────────────────────────────────────────────────────────────────────────
 const QUARTERS = [
   { name: "Fall 2026",   start: "2026-09-21", end: "2026-12-11" },
@@ -12,25 +12,37 @@ const QUARTERS = [
   { name: "Spring 2028", start: "2028-03-22", end: "2028-06-09" },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UC Berkeley Academic Calendar (Semester system)
+// ─────────────────────────────────────────────────────────────────────────────
+const SEMESTERS = [
+  { name: "Fall 2026",   start: "2026-08-19", end: "2026-12-18" },
+  { name: "Spring 2027", start: "2027-01-12", end: "2027-05-14" },
+  { name: "Fall 2027",   start: "2027-08-18", end: "2027-12-17" },
+  { name: "Spring 2028", start: "2028-01-11", end: "2028-05-12" },
+];
+
 const SWIPE_VALUE = 16.50;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Meal Plans — all 6 UCLA options
-// Premier (P): meals roll over week-to-week within a quarter.
-// Regular (R): no rollover; strict weekly reset; one entry per meal period.
+// Meal Plans
 // ─────────────────────────────────────────────────────────────────────────────
 const MEAL_PLANS = {
+  // UCLA plans
   "19P": { label: "19 Premier", weekly: 19, premier: true  },
   "19R": { label: "19 Regular", weekly: 19, premier: false },
   "14P": { label: "14 Premier", weekly: 14, premier: true  },
   "14R": { label: "14 Regular", weekly: 14, premier: false },
   "11P": { label: "11 Premier", weekly: 11, premier: true  },
   "11R": { label: "11 Regular", weekly: 11, premier: false },
+  // UC Berkeley plans (semester-based, no rollover)
+  "BG":  { label: "Blue & Gold", weekly: 14,  premier: false },
+  "BU":  { label: "Ultimate",    weekly: 999, premier: false }, // unlimited — modeled as 999
 };
 const DEFAULT_PLAN = "19P";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Schools — one entry per supported school
+// Schools
 // ─────────────────────────────────────────────────────────────────────────────
 const SCHOOLS = {
   ucla: {
@@ -38,6 +50,7 @@ const SCHOOLS = {
     name: "UCLA",
     fullName: "University of California, Los Angeles",
     color: "#2774AE",
+    calType: "quarter",
     plans: ["19P","19R","14P","14R","11P","11R"],
     locations: [
       "De Neve","Epicuria at Covel","Bruin Plate","Rendezvous",
@@ -45,10 +58,25 @@ const SCHOOLS = {
       "Epic at Ackerman","Northern Lights Café","Anderson Café","Luvalle Commons",
     ],
   },
+  berkeley: {
+    id: "berkeley",
+    name: "UC Berkeley",
+    fullName: "University of California, Berkeley",
+    color: "#003262",
+    calType: "semester",
+    plans: ["BG","BU"],
+    locations: [
+      // Residential Dining Commons (swipe-eligible)
+      "Café 3","Clark Kerr","Crossroads","Foothill",
+      // Campus Eateries
+      "Brown's","The Golden Bear Café","The Eateries at MLK",
+      "Gateway Café","Qualcomm Café","Free Speech Movement Café",
+      // Convenience & Markets
+      "Bear Market","Cub Market","The Den",
+    ],
+  },
 };
 const DEFAULT_SCHOOL = "ucla";
-
-// Locations are pulled from SCHOOLS[school].locations dynamically
 
 const MEAL_PERIODS = ["Breakfast", "Lunch", "Dinner", "Late Night", "Snack"];
 
@@ -60,7 +88,7 @@ const COMMON_FOODS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared styles — defined early so all components can reference them
+// Shared styles (UCLA blue is fine here — these are static defaults)
 // ─────────────────────────────────────────────────────────────────────────────
 const overlayStyle = {
   position: "fixed", inset: 0, background: "rgba(0,0,0,.5)",
@@ -72,10 +100,10 @@ const modalStyle = {
   maxHeight: "87vh", display: "flex", flexDirection: "column",
 };
 const chipGrid = { display: "flex", flexWrap: "wrap", gap: 8 };
-const chipStyle = (active, dashed = false) => ({
-  border: dashed ? "1.5px dashed #bbb" : active ? "2px solid #2774AE" : "1.5px solid #e5e5e5",
-  background: active ? "#eef5fb" : "#fff",
-  color: active ? "#2774AE" : dashed ? "#888" : "#444",
+const chipStyle = (active, color = "#2774AE", dashed = false) => ({
+  border: dashed ? "1.5px dashed #bbb" : active ? "2px solid " + color : "1.5px solid #e5e5e5",
+  background: active ? color + "18" : "#fff",
+  color: active ? color : dashed ? "#888" : "#444",
   borderRadius: 20, padding: "7px 14px", fontSize: 13, cursor: "pointer",
   fontWeight: active ? 600 : 400, transition: "all .15s",
 });
@@ -101,7 +129,7 @@ const cardStyle = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Responsive breakpoint hook
+// Hooks & Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 function useBreakpoint() {
   const [width, setWidth] = useState(window.innerWidth);
@@ -118,9 +146,6 @@ function useBreakpoint() {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Calendar helpers
-// ─────────────────────────────────────────────────────────────────────────────
 function getWeekStart(date = new Date()) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -134,15 +159,23 @@ function dateStr(date = new Date()) {
   return new Date(date).toISOString().split("T")[0];
 }
 
+// Returns the active period (quarter or semester) for a given school object
+function getActivePeriod(date = new Date(), school = null) {
+  const ds = dateStr(date);
+  const cal = school?.calType === "semester" ? SEMESTERS : QUARTERS;
+  return cal.find(p => ds >= p.start && ds <= p.end) || null;
+}
+
+// UCLA-only alias used by rollover logic
 function getActiveQuarter(date = new Date()) {
   const ds = dateStr(date);
   return QUARTERS.find(q => ds >= q.start && ds <= q.end) || null;
 }
 
-function weeksInQuarter(quarter) {
+function weeksInPeriod(period) {
   const weeks = [];
-  const end = new Date(quarter.end);
-  let cur = new Date(getWeekStart(new Date(quarter.start)));
+  const end = new Date(period.end);
+  let cur = new Date(getWeekStart(new Date(period.start)));
   while (cur <= end) {
     weeks.push(cur.toISOString().split("T")[0]);
     cur = new Date(cur);
@@ -150,8 +183,9 @@ function weeksInQuarter(quarter) {
   }
   return weeks;
 }
+// Keep alias so rollover logic works unchanged
+function weeksInQuarter(quarter) { return weeksInPeriod(quarter); }
 
-// Premier rollover: accumulates unused swipes across weeks within a quarter
 function computeRollover(meals, weeklySwipes) {
   const today = new Date();
   const curWeek = getWeekStart(today);
@@ -174,7 +208,6 @@ function computeRollover(meals, weeklySwipes) {
   return bank;
 }
 
-// Total quarter meals used & remaining (Premier only)
 function computeQuarterStats(meals, weeklySwipes) {
   const today = new Date();
   const quarter = getActiveQuarter(today);
@@ -188,7 +221,6 @@ function computeQuarterStats(meals, weeklySwipes) {
   return { totalQuarter, used, remaining: Math.max(0, totalQuarter - used), quarter };
 }
 
-// Regular: meals this week (no rollover). Returns swipes left this week only.
 function computeRegularWeekly(meals, weeklySwipes) {
   const curWeek = getWeekStart();
   const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
@@ -199,9 +231,6 @@ function computeRegularWeekly(meals, weeklySwipes) {
   return { used, left: Math.max(0, weeklySwipes - used) };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Persistence
-// ─────────────────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "swipes_v1";
 function load() {
   try {
@@ -214,14 +243,16 @@ function load() {
     if (!parsed.mealPlan) parsed.mealPlan = DEFAULT_PLAN;
     if (!parsed.rankings) parsed.rankings = {};
     if (!parsed.school) parsed.school = DEFAULT_SCHOOL;
+    // If stored plan is invalid for stored school, reset to that school's first plan
+    const storedSchool = SCHOOLS[parsed.school] || SCHOOLS[DEFAULT_SCHOOL];
+    if (!storedSchool.plans.includes(parsed.mealPlan)) {
+      parsed.mealPlan = storedSchool.plans[0];
+    }
     return parsed;
   } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {}, school: DEFAULT_SCHOOL }; }
 }
 function persist(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
@@ -229,10 +260,8 @@ function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Add Location Modal
+// Components
 // ─────────────────────────────────────────────────────────────────────────────
 function AddLocationModal({ onClose, onAdd }) {
   const [name, setName] = useState("");
@@ -257,10 +286,7 @@ function AddLocationModal({ onClose, onAdd }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Log Meal Modal
-// ─────────────────────────────────────────────────────────────────────────────
-function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, editMeal = null }) {
+function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, editMeal = null, schoolColor = "#2774AE" }) {
   const isEditing = !!editMeal;
   const [step, setStep] = useState(1);
   const [location, setLocation] = useState(editMeal?.location || "");
@@ -304,13 +330,13 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
         <div style={{ ...modalStyle, ...desktopModalOverride }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
             <div>
-              <div style={{ fontSize: 10, letterSpacing: 1.2, color: "#2774AE", fontWeight: 700, marginBottom: 6 }}>
+              <div style={{ fontSize: 10, letterSpacing: 1.2, color: schoolColor, fontWeight: 700, marginBottom: 6 }}>
                 {stepLabels[step - 1]}
               </div>
               <div style={{ display: "flex", gap: 5 }}>
                 {[1,2].map(s => (
                   <div key={s} style={{ width: 32, height: 3, borderRadius: 2,
-                    background: s <= step ? "#2774AE" : "#e5e5e5", transition: "background .2s" }} />
+                    background: s <= step ? schoolColor : "#e5e5e5", transition: "background .2s" }} />
                 ))}
               </div>
             </div>
@@ -322,14 +348,14 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
               <div style={fieldLabel}>Dining location</div>
               <div style={chipGrid}>
                 {allLocations.map(loc => (
-                  <button key={loc} onClick={() => setLocation(loc)} style={chipStyle(location === loc)}>{loc}</button>
+                  <button key={loc} onClick={() => setLocation(loc)} style={chipStyle(location === loc, schoolColor)}>{loc}</button>
                 ))}
-                <button onClick={() => setShowAddLoc(true)} style={chipStyle(false, true)}>+ Add location</button>
+                <button onClick={() => setShowAddLoc(true)} style={chipStyle(false, schoolColor, true)}>+ Add location</button>
               </div>
               <div style={{ ...fieldLabel, marginTop: 20 }}>Meal period</div>
               <div style={chipGrid}>
                 {MEAL_PERIODS.map(p => (
-                  <button key={p} onClick={() => setPeriod(p)} style={chipStyle(period === p)}>{p}</button>
+                  <button key={p} onClick={() => setPeriod(p)} style={chipStyle(period === p, schoolColor)}>{p}</button>
                 ))}
               </div>
             </div>
@@ -340,7 +366,7 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
               <div style={fieldLabel}>Tap what you ate</div>
               <div style={chipGrid}>
                 {COMMON_FOODS.map(f => (
-                  <button key={f} onClick={() => toggleFood(f)} style={chipStyle(foods.includes(f))}>{f}</button>
+                  <button key={f} onClick={() => toggleFood(f)} style={chipStyle(foods.includes(f), schoolColor)}>{f}</button>
                 ))}
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
@@ -349,12 +375,12 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
                   onKeyDown={e => e.key === "Enter" && addCustomFood()}
                   placeholder="Something else…"
                   style={{ ...inputStyle, flex: 1 }} />
-                <button onClick={addCustomFood} style={addBtnStyle}>Add</button>
+                <button onClick={addCustomFood} style={{ ...addBtnStyle, background: schoolColor }}>Add</button>
               </div>
               {foods.length > 0 && (
                 <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {foods.map(f => (
-                    <span key={f} style={tagStyle}>
+                    <span key={f} style={{ ...tagStyle, background: schoolColor + "18", color: schoolColor }}>
                       {f} <span onClick={() => toggleFood(f)} style={{ cursor: "pointer", opacity: .6 }}>×</span>
                     </span>
                   ))}
@@ -377,7 +403,7 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
             {step < 2 ? (
               <button onClick={() => setStep(2)}
                 disabled={!canNext1}
-                style={{ ...primaryBtnStyle, flex: 2, opacity: canNext1 ? 1 : 0.4 }}>
+                style={{ ...primaryBtnStyle, flex: 2, background: schoolColor, opacity: canNext1 ? 1 : 0.4 }}>
                 Next →
               </button>
             ) : (
@@ -403,10 +429,7 @@ function LogModal({ onClose, onSave, allLocations, onAddLocation, isDesktop, edi
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Meal Card
-// ─────────────────────────────────────────────────────────────────────────────
-function MealCard({ meal, onDelete, onEdit }) {
+function MealCard({ meal, onDelete, onEdit, schoolColor = "#2774AE" }) {
   const [open, setOpen] = useState(false);
   return (
     <div onClick={() => setOpen(o => !o)} style={{
@@ -433,7 +456,7 @@ function MealCard({ meal, onDelete, onEdit }) {
       {open && (
         <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
           <button onClick={e => { e.stopPropagation(); onEdit(meal); }}
-            style={{ ...ghostBtnStyle, fontSize: 12, color: "#2774AE", fontWeight: 600 }}>✏ Edit</button>
+            style={{ ...ghostBtnStyle, fontSize: 12, color: schoolColor, fontWeight: 600 }}>✏ Edit</button>
           <button onClick={e => { e.stopPropagation(); onDelete(meal.id); }}
             style={{ ...ghostBtnStyle, fontSize: 12, color: "#e74c3c" }}>Delete</button>
         </div>
@@ -442,10 +465,7 @@ function MealCard({ meal, onDelete, onEdit }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Meal Log Panel
-// ─────────────────────────────────────────────────────────────────────────────
-function MealLog({ meals, onDelete, onEdit, onLogNew, isDesktop }) {
+function MealLog({ meals, onDelete, onEdit, onLogNew, isDesktop, schoolColor = "#2774AE" }) {
   const grouped = {};
   meals.forEach(m => {
     const dk = m.timestamp.split("T")[0];
@@ -467,11 +487,9 @@ function MealLog({ meals, onDelete, onEdit, onLogNew, isDesktop }) {
           <div style={{ fontSize: 11, fontWeight: 600, color: "#bbb", letterSpacing: .5, margin: "16px 0 8px" }}>
             {fmtDate(dk + "T12:00:00")}
           </div>
-          {grouped[dk].map(m => <MealCard key={m.id} meal={m} onDelete={onDelete} onEdit={onEdit} />)}
+          {grouped[dk].map(m => <MealCard key={m.id} meal={m} onDelete={onDelete} onEdit={onEdit} schoolColor={schoolColor} />)}
         </div>
       ))}
-
-      {/* FAB — floats inside panel on desktop, fixed on mobile */}
       <button onClick={onLogNew} style={{
         ...(isDesktop ? {
           display: "flex", alignItems: "center", gap: 8,
@@ -481,9 +499,9 @@ function MealLog({ meals, onDelete, onEdit, onLogNew, isDesktop }) {
           position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
           display: "flex", alignItems: "center", gap: 8,
         }),
-        background: "#2774AE", color: "#fff", border: "none", borderRadius: 30,
+        background: schoolColor, color: "#fff", border: "none", borderRadius: 30,
         padding: "13px 32px", fontSize: 15, fontWeight: 600, cursor: "pointer",
-        boxShadow: "0 4px 20px rgba(39,116,174,.45)", whiteSpace: "nowrap", zIndex: 20,
+        boxShadow: `0 4px 20px ${schoolColor}70`, whiteSpace: "nowrap", zIndex: 20,
       }}>
         <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Log a meal
       </button>
@@ -491,12 +509,6 @@ function MealLog({ meals, onDelete, onEdit, onLogNew, isDesktop }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stats Panel
-// ─────────────────────────────────────────────────────────────────────────────
-// Ranking Engine — Beli-style binary search + ELO
-// itemKey = "food||location". Each unique food×location combo is ranked.
-// ─────────────────────────────────────────────────────────────────────────────
 function itemKey(food, location) { return food + "||" + location; }
 
 function getSortedRankings(rankings) {
@@ -532,10 +544,7 @@ function getCandidatesFromMeal(meal) {
   }));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RankerModal — binary search comparison UI
-// ─────────────────────────────────────────────────────────────────────────────
-function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop }) {
+function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop, schoolColor = "#2774AE" }) {
   const sorted = getSortedRankings(rankings).filter(r => r.key !== newItem.key);
   const [lo, setLo] = useState(0);
   const [hi, setHi] = useState(sorted.length);
@@ -581,14 +590,14 @@ function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop }) {
           <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{newItem.food}</div>
           <div style={{ fontSize: 14, color: "#888", marginBottom: 4 }}>{newItem.location}</div>
           <div style={{ fontSize: 15, color: "#555", marginBottom: 20 }}>
-            Ranked <strong style={{ color: "#2774AE" }}>#{rank}</strong> of {total}
+            Ranked <strong style={{ color: schoolColor }}>#{rank}</strong> of {total}
           </div>
           {rank <= 3 && (
-            <div style={{ background: "#f0f7ff", borderRadius: 10, padding: "10px 16px", marginBottom: 20, fontSize: 13, color: "#2774AE" }}>
+            <div style={{ background: schoolColor + "18", borderRadius: 10, padding: "10px 16px", marginBottom: 20, fontSize: 13, color: schoolColor }}>
               {rank === 1 ? "🔥 New #1 — your top pick!" : rank === 2 ? "⭐ Top 3 — strong choice." : "👍 Top 3!"}
             </div>
           )}
-          <button onClick={() => onDone(currentRankings)} style={{ ...primaryBtnStyle, width: "100%" }}>
+          <button onClick={() => onDone(currentRankings)} style={{ ...primaryBtnStyle, width: "100%", background: schoolColor }}>
             See rankings →
           </button>
         </div>
@@ -600,26 +609,24 @@ function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop }) {
     <div style={{ ...overlayStyle, ...centerStyle }}>
       <div style={{ ...modalStyle, ...modalOverride }}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 10, letterSpacing: 1.2, color: "#2774AE", fontWeight: 700, marginBottom: 8 }}>RANK THIS MEAL</div>
+          <div style={{ fontSize: 10, letterSpacing: 1.2, color: schoolColor, fontWeight: 700, marginBottom: 8 }}>RANK THIS MEAL</div>
           <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>
             Comparison {Math.min(currentStep + 1, totalSteps)} of ~{totalSteps}
           </div>
           <div style={{ display: "flex", justifyContent: "center", gap: 6 }}>
             {Array.from({ length: totalSteps }).map((_, i) => (
               <div key={i} style={{ width: 8, height: 8, borderRadius: "50%",
-                background: i <= currentStep ? "#2774AE" : "#e0e0e0" }} />
+                background: i <= currentStep ? schoolColor : "#e0e0e0" }} />
             ))}
           </div>
         </div>
-
         <div style={{ fontSize: 13, color: "#888", textAlign: "center", marginBottom: 12 }}>Which do you prefer?</div>
-
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <button onClick={() => handleChoice(true)} style={{
             border: "2px solid #e5e5e5", borderRadius: 14, padding: "18px 12px",
             background: "#fff", cursor: "pointer", textAlign: "center", transition: "all .15s",
           }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = "#2774AE"; e.currentTarget.style.background = "#eef5fb"; }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = schoolColor; e.currentTarget.style.background = schoolColor + "12"; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e5e5"; e.currentTarget.style.background = "#fff"; }}
           >
             <div style={{ fontSize: 11, color: "#aaa", marginBottom: 6, fontWeight: 600 }}>JUST HAD</div>
@@ -641,7 +648,6 @@ function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop }) {
             </div>
           </button>
         </div>
-
         <button onClick={onSkip} style={{
           ...ghostBtnStyle, width: "100%", border: "1.5px solid #e5e5e5",
           borderRadius: 10, padding: "11px 0", fontSize: 13,
@@ -653,10 +659,7 @@ function RankerModal({ newItem, rankings, onDone, onSkip, isDesktop }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TopMeals — leaderboard
-// ─────────────────────────────────────────────────────────────────────────────
-function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
+function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking, schoolColor = "#2774AE" }) {
   const [filter, setFilter] = useState("all");
   const sorted = getSortedRankings(rankings);
   const locations = [...new Set(sorted.map(r => r.location))];
@@ -678,9 +681,9 @@ function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
     <div>
       {locations.length > 1 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          <button onClick={() => setFilter("all")} style={chipStyle(filter === "all")}>All</button>
+          <button onClick={() => setFilter("all")} style={chipStyle(filter === "all", schoolColor)}>All</button>
           {locations.map(loc => (
-            <button key={loc} onClick={() => setFilter(loc)} style={chipStyle(filter === loc)}>{loc}</button>
+            <button key={loc} onClick={() => setFilter(loc)} style={chipStyle(filter === loc, schoolColor)}>{loc}</button>
           ))}
         </div>
       )}
@@ -692,7 +695,7 @@ function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
           return (
             <div key={item.key} style={{
               background: "#fff", borderRadius: 12, padding: "13px 16px",
-              boxShadow: globalRank < 3 ? "0 2px 8px rgba(39,116,174,.12)" : "0 1px 4px rgba(0,0,0,.07)",
+              boxShadow: globalRank < 3 ? `0 2px 8px ${schoolColor}20` : "0 1px 4px rgba(0,0,0,.07)",
               border: globalRank === 0 ? "2px solid #FFB800" : globalRank < 3 ? "1.5px solid #e0eaf5" : "1.5px solid transparent",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -705,12 +708,12 @@ function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
                   <div style={{ fontSize: 12, color: "#888", marginTop: 1 }}>{item.location}</div>
                   <div style={{ marginTop: 6, height: 3, background: "#eee", borderRadius: 2 }}>
                     <div style={{ height: "100%", borderRadius: 2,
-                      background: globalRank === 0 ? "#FFB800" : "#2774AE",
+                      background: globalRank === 0 ? "#FFB800" : schoolColor,
                       width: barWidth + "%", transition: "width .4s" }} />
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: globalRank === 0 ? "#FFB800" : "#2774AE" }}>{item.score}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: globalRank === 0 ? "#FFB800" : schoolColor }}>{item.score}</div>
                   <div style={{ fontSize: 10, color: "#bbb", marginTop: 2 }}>{item.wins || 0}W {item.losses || 0}L</div>
                   <button onClick={e => { e.stopPropagation(); onDeleteRanking(item); }}
                     style={{ ...ghostBtnStyle, fontSize: 10, color: "#e74c3c", marginTop: 4, display: "block" }}>
@@ -723,7 +726,7 @@ function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
         })}
       </div>
       {sorted.length >= 2 && (
-        <button onClick={onStartComparison} style={{ ...primaryBtnStyle, width: "100%", marginTop: 20 }}>
+        <button onClick={onStartComparison} style={{ ...primaryBtnStyle, width: "100%", marginTop: 20, background: schoolColor }}>
           ⚔️ Run a new comparison
         </button>
       )}
@@ -731,9 +734,6 @@ function TopMeals({ rankings, meals, onStartComparison, onDeleteRanking }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// School Selector
-// ─────────────────────────────────────────────────────────────────────────────
 function SchoolSelector({ currentSchool, onChangeSchool }) {
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -751,7 +751,7 @@ function SchoolSelector({ currentSchool, onChangeSchool }) {
               display: "flex", alignItems: "center", justifyContent: "space-between",
               width: "100%", padding: "14px 16px", marginBottom: 8,
               border: active ? "2px solid " + school.color : "1.5px solid #e5e5e5",
-              borderRadius: 12, background: active ? "#eef5fb" : "#fff",
+              borderRadius: 12, background: active ? school.color + "12" : "#fff",
               cursor: "pointer", textAlign: "left",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -781,7 +781,7 @@ function SchoolSelector({ currentSchool, onChangeSchool }) {
         <div style={{ fontSize: 12, color: "#aaa", fontWeight: 700, marginBottom: 8, letterSpacing: .5 }}>
           COMING SOON
         </div>
-        {["UC Berkeley", "SJSU", "UC Irvine", "Caltech"].map(name => (
+        {["SJSU", "UC Irvine", "Caltech"].map(name => (
           <div key={name} style={{ fontSize: 14, color: "#ccc", padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
             {name}
           </div>
@@ -791,20 +791,57 @@ function SchoolSelector({ currentSchool, onChangeSchool }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Meal Plan Selector
-// ─────────────────────────────────────────────────────────────────────────────
-function MealPlanSelector({ currentPlan, onChangePlan }) {
-  const premiers = ["19P","14P","11P"];
-  const regulars = ["19R","14R","11R"];
+function MealPlanSelector({ currentPlan, onChangePlan, school }) {
+  const availablePlans = school?.plans || Object.keys(MEAL_PLANS);
+  const schoolColor = school?.color || "#2774AE";
+  const isBerkeley = school?.calType === "semester";
+
+  if (isBerkeley) {
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6 }}>
+          Select your dining plan. Weekly swipes reset every Monday. Unused swipes do not carry over.
+        </div>
+        <div style={cardStyle}>
+          <div style={{ fontSize: 12, color: schoolColor, fontWeight: 700, marginBottom: 12, letterSpacing: .5 }}>AVAILABLE PLANS</div>
+          {availablePlans.map(id => {
+            const p = MEAL_PLANS[id];
+            if (!p) return null;
+            const active = currentPlan === id;
+            const isUnlimited = p.weekly >= 999;
+            return (
+              <button key={id} onClick={() => onChangePlan(id)} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                width: "100%", padding: "12px 14px", marginBottom: 8,
+                border: active ? "2px solid " + schoolColor : "1.5px solid #e5e5e5",
+                borderRadius: 10, background: active ? schoolColor + "12" : "#fff",
+                cursor: "pointer", textAlign: "left",
+              }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: active ? schoolColor : "#222" }}>{p.label}</div>
+                  <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>
+                    {isUnlimited ? "Unlimited swipes/week · 1 per 30 min" : `${p.weekly} swipes/week`} · no rollover
+                  </div>
+                </div>
+                {active && <span style={{ color: schoolColor, fontSize: 18 }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // UCLA-style (premier / regular split)
+  const premiers = availablePlans.filter(id => MEAL_PLANS[id]?.premier);
+  const regulars  = availablePlans.filter(id => MEAL_PLANS[id] && !MEAL_PLANS[id].premier);
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6 }}>
         Select your dining plan. <strong>Premier</strong> plans let unused meals roll over week-to-week within the quarter. <strong>Regular</strong> plans reset every week with no rollover.
       </div>
-
       <div style={cardStyle}>
-        <div style={{ fontSize: 12, color: "#2774AE", fontWeight: 700, marginBottom: 12, letterSpacing: .5 }}>PREMIER PLANS</div>
+        <div style={{ fontSize: 12, color: schoolColor, fontWeight: 700, marginBottom: 12, letterSpacing: .5 }}>PREMIER PLANS</div>
         <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>Unused meals roll over week to week within the quarter</div>
         {premiers.map(id => {
           const p = MEAL_PLANS[id];
@@ -813,20 +850,19 @@ function MealPlanSelector({ currentPlan, onChangePlan }) {
             <button key={id} onClick={() => onChangePlan(id)} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
               width: "100%", padding: "12px 14px", marginBottom: 8,
-              border: active ? "2px solid #2774AE" : "1.5px solid #e5e5e5",
-              borderRadius: 10, background: active ? "#eef5fb" : "#fff",
+              border: active ? "2px solid " + schoolColor : "1.5px solid #e5e5e5",
+              borderRadius: 10, background: active ? schoolColor + "12" : "#fff",
               cursor: "pointer", textAlign: "left",
             }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: 14, color: active ? "#2774AE" : "#222" }}>{p.label}</div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: active ? schoolColor : "#222" }}>{p.label}</div>
                 <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{p.weekly} meals/week · rollover ✓</div>
               </div>
-              {active && <span style={{ color: "#2774AE", fontSize: 18 }}>✓</span>}
+              {active && <span style={{ color: schoolColor, fontSize: 18 }}>✓</span>}
             </button>
           );
         })}
       </div>
-
       <div style={cardStyle}>
         <div style={{ fontSize: 12, color: "#888", fontWeight: 700, marginBottom: 12, letterSpacing: .5 }}>REGULAR PLANS</div>
         <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>Weekly reset — unused meals do not carry over</div>
@@ -854,9 +890,12 @@ function MealPlanSelector({ currentPlan, onChangePlan }) {
   );
 }
 
-function Stats({ meals, mealPlan }) {
+function Stats({ meals, mealPlan, school }) {
   const plan = MEAL_PLANS[mealPlan] || MEAL_PLANS[DEFAULT_PLAN];
   const { weekly, premier } = plan;
+  const isUnlimited = weekly >= 999;
+  const schoolColor = school?.color || "#2774AE";
+  const periodLabel = school?.calType === "semester" ? "Semester" : "Quarter";
   const today = new Date();
   const curWeek = getWeekStart(today);
   const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
@@ -864,21 +903,13 @@ function Stats({ meals, mealPlan }) {
     const d = new Date(m.timestamp);
     return d >= new Date(curWeek) && d < weekEnd;
   }).length;
-
-  // Premier: rollover bank + quarter totals
   const rollover = premier ? computeRollover(meals, weekly) : 0;
-  const totalAvail = premier ? weekly + rollover : weekly;
-  const swipesLeft = Math.max(0, totalAvail - thisWeekUsed);
-  const quarterStats = premier ? computeQuarterStats(meals, weekly) : null;
-
-  // Regular: strict weekly
-  const regWeekly = !premier ? computeRegularWeekly(meals, weekly) : null;
-
-  const activeQ = getActiveQuarter(today);
-
+  const totalAvail = isUnlimited ? Infinity : (premier ? weekly + rollover : weekly);
+  const swipesLeft = isUnlimited ? Infinity : Math.max(0, totalAvail - thisWeekUsed);
+  const activePeriod = getActivePeriod(today, school);
+  const quarterStats = premier && !isUnlimited ? computeQuarterStats(meals, weekly) : null;
   const byPeriod = {};
   MEAL_PERIODS.forEach(p => byPeriod[p] = meals.filter(m => m.period === p).length);
-
   const weekHistory = [];
   for (let i = 3; i >= 0; i--) {
     const d = new Date();
@@ -888,45 +919,50 @@ function Stats({ meals, mealPlan }) {
     const used = meals.filter(m => { const md = new Date(m.timestamp); return md >= new Date(wk) && md < wkEnd; }).length;
     weekHistory.push({ wk, used, label: i === 0 ? "This week" : `${i}w ago` });
   }
-
-  const alertColor = swipesLeft < 3 ? "#e74c3c" : "#2774AE";
+  const displayLeft = isUnlimited ? "∞" : swipesLeft;
+  const alertColor = (isUnlimited || swipesLeft >= 3) ? schoolColor : "#e74c3c";
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {activeQ && (
-        <div style={{ fontSize: 12, color: "#2774AE", fontWeight: 600, textAlign: "center", padding: "2px 0" }}>
-          {activeQ.name} · ends {fmtDate(activeQ.end + "T12:00:00")} · <span style={{ color: "#888", fontWeight: 400 }}>{plan.label}</span>
+      {activePeriod && (
+        <div style={{ fontSize: 12, color: schoolColor, fontWeight: 600, textAlign: "center", padding: "2px 0" }}>
+          {activePeriod.name} · ends {fmtDate(activePeriod.end + "T12:00:00")} · <span style={{ color: "#888", fontWeight: 400 }}>{plan.label}</span>
         </div>
       )}
-
-      {/* Weekly balance */}
       <div style={cardStyle}>
         <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>
-          This week · {premier ? "swipe balance (w/ rollover)" : "swipes remaining"}
+          {isUnlimited
+            ? "Unlimited plan · meals this week"
+            : premier ? "This week · swipe balance (w/ rollover)" : "This week · swipes remaining"}
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <span style={{ fontSize: 40, fontWeight: 700, color: alertColor, lineHeight: 1 }}>{swipesLeft}</span>
+          <span style={{ fontSize: 40, fontWeight: 700, color: alertColor, lineHeight: 1 }}>
+            {isUnlimited ? thisWeekUsed : displayLeft}
+          </span>
           <span style={{ fontSize: 13, color: "#aaa" }}>
-            left of {totalAvail}
-            {premier && rollover > 0 ? ` (incl. ${rollover} rolled over)` : ""}
+            {isUnlimited
+              ? "meals logged this week"
+              : `left of ${totalAvail}${premier && rollover > 0 ? ` (incl. ${rollover} rolled over)` : ""}`}
           </span>
         </div>
-        <div style={{ margin: "10px 0 4px", height: 7, background: "#eee", borderRadius: 4 }}>
-          <div style={{ height: "100%", borderRadius: 4, background: alertColor,
-            width: `${totalAvail ? Math.min(100,(thisWeekUsed/totalAvail)*100) : 0}%`, transition: "width .4s" }} />
-        </div>
+        {!isUnlimited && (
+          <div style={{ margin: "10px 0 4px", height: 7, background: "#eee", borderRadius: 4 }}>
+            <div style={{ height: "100%", borderRadius: 4, background: alertColor,
+              width: `${totalAvail ? Math.min(100,(thisWeekUsed/totalAvail)*100) : 0}%`, transition: "width .4s" }} />
+          </div>
+        )}
         <div style={{ fontSize: 11, color: "#bbb" }}>
-          {thisWeekUsed} used this week · {premier ? "resets Monday, surplus rolls over" : "resets Monday — no rollover"}
+          {isUnlimited
+            ? "1 swipe every 30 min · resets Monday"
+            : premier ? "resets Monday, surplus rolls over" : "resets Monday — no rollover"}
         </div>
       </div>
-
-      {/* Premier: quarter total */}
       {premier && quarterStats && (
         <div style={cardStyle}>
-          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>Quarter total · {quarterStats.quarter.name}</div>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>{periodLabel} total · {quarterStats.quarter.name}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, textAlign: "center" }}>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#2774AE" }}>{quarterStats.remaining}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: schoolColor }}>{quarterStats.remaining}</div>
               <div style={{ fontSize: 10, color: "#aaa" }}>remaining</div>
             </div>
             <div>
@@ -939,15 +975,14 @@ function Stats({ meals, mealPlan }) {
             </div>
           </div>
           <div style={{ marginTop: 10, height: 6, background: "#eee", borderRadius: 4 }}>
-            <div style={{ height: "100%", borderRadius: 4, background: "#2774AE",
+            <div style={{ height: "100%", borderRadius: 4, background: schoolColor,
               width: `${(quarterStats.used / quarterStats.totalQuarter) * 100}%`, transition: "width .4s" }} />
           </div>
           <div style={{ fontSize: 11, color: "#bbb", marginTop: 4 }}>
-            All meals expire at quarter end — use them or lose them
+            All meals expire at {periodLabel.toLowerCase()} end — use them or lose them
           </div>
         </div>
       )}
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={cardStyle}>
           <div style={{ fontSize: 11, color: "#aaa" }}>Total meals logged</div>
@@ -958,21 +993,22 @@ function Stats({ meals, mealPlan }) {
           <div style={{ fontSize: 30, fontWeight: 700, marginTop: 2 }}>${(meals.length * SWIPE_VALUE).toFixed(0)}</div>
         </div>
       </div>
-
       <div style={cardStyle}>
         <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>Weekly swipe usage</div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 60 }}>
-          {weekHistory.map(({ label, used }) => (
-            <div key={label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#555" }}>{used}</div>
-              <div style={{ width: "100%", background: "#2774AE", borderRadius: "4px 4px 0 0",
-                height: `${Math.max(4, (used / weekly) * 52)}px`, opacity: label === "This week" ? 1 : 0.4 }} />
-              <div style={{ fontSize: 10, color: "#bbb" }}>{label}</div>
-            </div>
-          ))}
+          {weekHistory.map(({ label, used }) => {
+            const barRef = isUnlimited ? Math.max(...weekHistory.map(w => w.used), 1) : weekly;
+            return (
+              <div key={label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#555" }}>{used}</div>
+                <div style={{ width: "100%", background: schoolColor, borderRadius: "4px 4px 0 0",
+                  height: `${Math.max(4, (used / barRef) * 52)}px`, opacity: label === "This week" ? 1 : 0.4 }} />
+                <div style={{ fontSize: 10, color: "#bbb" }}>{label}</div>
+              </div>
+            );
+          })}
         </div>
       </div>
-
       {meals.length > 0 && (
         <div style={cardStyle}>
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>When you eat</div>
@@ -982,7 +1018,7 @@ function Stats({ meals, mealPlan }) {
                 <span>{p}</span><span style={{ color: "#aaa" }}>{byPeriod[p]}</span>
               </div>
               <div style={{ height: 4, background: "#eee", borderRadius: 2 }}>
-                <div style={{ height: "100%", borderRadius: 2, background: "#2774AE",
+                <div style={{ height: "100%", borderRadius: 2, background: schoolColor,
                   width: `${meals.length ? (byPeriod[p]/meals.length)*100 : 0}%`, transition: "width .4s" }} />
               </div>
             </div>
@@ -993,10 +1029,7 @@ function Stats({ meals, mealPlan }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Locations Manager
-// ─────────────────────────────────────────────────────────────────────────────
-function LocationsManager({ defaultLocations, customLocations, onAdd, onRemove }) {
+function LocationsManager({ defaultLocations, customLocations, onAdd, onRemove, schoolColor = "#2774AE" }) {
   const [showAdd, setShowAdd] = useState(false);
   return (
     <div>
@@ -1020,7 +1053,7 @@ function LocationsManager({ defaultLocations, customLocations, onAdd, onRemove }
           ))}
         </div>
       )}
-      <button onClick={() => setShowAdd(true)} style={{ ...primaryBtnStyle, width: "100%" }}>+ Add a location</button>
+      <button onClick={() => setShowAdd(true)} style={{ ...primaryBtnStyle, width: "100%", background: schoolColor }}>+ Add a location</button>
       {showAdd && (
         <AddLocationModal onClose={() => setShowAdd(false)} onAdd={name => { onAdd(name); setShowAdd(false); }} />
       )}
@@ -1029,7 +1062,7 @@ function LocationsManager({ defaultLocations, customLocations, onAdd, onRemove }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// App root
+// App
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
   const [data, setData] = useState(load);
@@ -1038,10 +1071,8 @@ export default function App() {
   const [tab, setTab] = useState("log");
   const [toast, setToast] = useState(null);
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
-
-  // Ranking state
-  const [rankQueue, setRankQueue] = useState([]); // items waiting to be ranked
-  const [rankingItem, setRankingItem] = useState(null); // current item being ranked
+  const [rankQueue, setRankQueue] = useState([]);
+  const [rankingItem, setRankingItem] = useState(null);
 
   function update(next) { setData(next); persist(next); }
 
@@ -1049,10 +1080,8 @@ export default function App() {
     const newData = { ...data, meals: [meal, ...data.meals] };
     update(newData);
     setShowLog(false);
-    // Queue each food×location combo for ranking (only if has foods)
     const candidates = getCandidatesFromMeal(meal);
     if (candidates.length > 0) {
-      // Ensure all candidates exist in rankings before queuing
       const updatedRankings = { ...newData.rankings };
       candidates.forEach(c => {
         if (!updatedRankings[c.key]) {
@@ -1098,7 +1127,6 @@ export default function App() {
   }
 
   function handleDeleteRanking(item) {
-    // Remove ranking entry and all meals that include this food×location combo
     const { food, location, key } = item;
     const updatedRankings = { ...data.rankings };
     delete updatedRankings[key];
@@ -1111,7 +1139,6 @@ export default function App() {
   }
 
   function handleManualCompare() {
-    // Pick two random items for a manual comparison
     const sorted = getSortedRankings(data.rankings || {});
     if (sorted.length < 2) return;
     const a = sorted[Math.floor(Math.random() * sorted.length)];
@@ -1131,7 +1158,6 @@ export default function App() {
     const remainingMeals = data.meals.filter(m => m.id !== id);
     let updatedRankings = { ...data.rankings };
     if (meal) {
-      // Remove ranking entry only if no other meal shares the same food×location combo
       getCandidatesFromMeal(meal).forEach(({ key, food, location }) => {
         const stillExists = remainingMeals.some(m =>
           m.location === location && (m.foods || []).includes(food)
@@ -1142,18 +1168,20 @@ export default function App() {
     update({ ...data, meals: remainingMeals, rankings: updatedRankings });
   }
   function handleAddLocation(name) {
-    if (!data.customLocations.includes(name) && !DEFAULT_LOCATIONS.includes(name))
+    if (!data.customLocations.includes(name) && !school.locations.includes(name))
       update({ ...data, customLocations: [...data.customLocations, name] });
   }
   function handleRemoveLocation(name) {
     update({ ...data, customLocations: data.customLocations.filter(l => l !== name) });
   }
 
+  // ── School-aware derived state ──────────────────────────────────────────────
   const school = SCHOOLS[data.school || DEFAULT_SCHOOL];
   const allLocations = [...school.locations, ...(data.customLocations || [])];
   const mealPlan = data.mealPlan || DEFAULT_PLAN;
-  const plan = MEAL_PLANS[mealPlan];
+  const plan = MEAL_PLANS[mealPlan] || MEAL_PLANS[DEFAULT_PLAN];
   const { weekly, premier } = plan;
+  const isUnlimited = weekly >= 999;
   const rollover = premier ? computeRollover(data.meals, weekly) : 0;
   const curWeek = getWeekStart();
   const weekEnd = new Date(curWeek); weekEnd.setDate(weekEnd.getDate() + 7);
@@ -1161,14 +1189,20 @@ export default function App() {
     const d = new Date(m.timestamp);
     return d >= new Date(curWeek) && d < weekEnd;
   }).length;
-  const swipesLeft = Math.max(0, (premier ? weekly + rollover : weekly) - thisWeekUsed);
+  const swipesLeft = isUnlimited
+    ? "∞"
+    : Math.max(0, (premier ? weekly + rollover : weekly) - thisWeekUsed);
+  const sc = school.color; // shorthand for inline styles below
 
   function handleChangeSchool(schoolId) {
-    update({ ...data, school: schoolId });
-    setToast("School updated to " + SCHOOLS[schoolId].name);
+    const newSchool = SCHOOLS[schoolId];
+    const currentPlanValid = newSchool.plans.includes(data.mealPlan);
+    const newPlan = currentPlanValid ? data.mealPlan : newSchool.plans[0];
+    // Clear custom locations when switching schools (they were school-specific)
+    update({ ...data, school: schoolId, mealPlan: newPlan, customLocations: [] });
+    setToast("Switched to " + newSchool.name + " ✓");
     setTimeout(() => setToast(null), 2500);
   }
-
   function handleChangePlan(planId) {
     update({ ...data, mealPlan: planId });
     setToast("Switched to " + MEAL_PLANS[planId].label + " ✓");
@@ -1182,12 +1216,46 @@ export default function App() {
     { id: "settings", label: "Settings" },
   ];
 
+  const settingsContent = (fontSize) => (
+    <div style={{ display: "grid", gap: fontSize > 16 ? 32 : fontSize > 14 ? 28 : 24 }}>
+      <div>
+        <div style={{ fontWeight: 700, fontSize, marginBottom: 4 }}>School</div>
+        <div style={{ fontSize: 13, color: "#aaa", marginBottom: fontSize > 14 ? 16 : 12 }}>Sets your default locations and meal plan options.</div>
+        <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
+      </div>
+      <div>
+        <div style={{ fontWeight: 700, fontSize, marginBottom: 4 }}>Meal Plan</div>
+        <div style={{ fontSize: 13, color: "#aaa", marginBottom: fontSize > 14 ? 16 : 12 }}>Controls your weekly swipe budget and rollover.</div>
+        <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} school={school} />
+      </div>
+      <div>
+        <div style={{ fontWeight: 700, fontSize, marginBottom: 4 }}>Locations</div>
+        <div style={{ fontSize: 13, color: "#aaa", marginBottom: fontSize > 14 ? 16 : 12 }}>Add off-campus spots or custom locations.</div>
+        <LocationsManager
+          defaultLocations={school.locations}
+          customLocations={data.customLocations || []}
+          onAdd={handleAddLocation}
+          onRemove={handleRemoveLocation}
+          schoolColor={sc}
+        />
+      </div>
+    </div>
+  );
+
+  const modals = (isDesk) => (<>
+    {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
+      allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={isDesk} schoolColor={sc} />}
+    {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
+      allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={isDesk} editMeal={editingMeal} schoolColor={sc} />}
+    {rankingItem && <RankerModal newItem={rankingItem} rankings={data.rankings || {}} onDone={handleRankDone} onSkip={handleRankSkip} isDesktop={isDesk} schoolColor={sc} />}
+    {toast && <Toast msg={toast} />}
+  </>);
+
   // ── Desktop layout ──────────────────────────────────────────────────────────
   if (isDesktop) {
     return (
       <div style={{ minHeight: "100vh", background: "#eef2f7", fontFamily: "'Inter', -apple-system, sans-serif" }}>
-        {/* Top nav bar */}
-        <div style={{ background: "#2774AE", padding: "0 40px", display: "flex", alignItems: "center",
+        <div style={{ background: sc, padding: "0 40px", display: "flex", alignItems: "center",
           justifyContent: "space-between", height: 64, position: "sticky", top: 0, zIndex: 10,
           boxShadow: "0 2px 12px rgba(0,0,0,.15)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1197,7 +1265,6 @@ export default function App() {
               <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, lineHeight: 1.1 }}>Swipes {school.name}</div>
             </div>
           </div>
-          {/* Nav links */}
           <div style={{ display: "flex", gap: 4 }}>
             {TABS.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
@@ -1209,85 +1276,37 @@ export default function App() {
               }}>{t.label}</button>
             ))}
           </div>
-          {/* Swipe count */}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ textAlign: "right" }}>
               <div style={{ color: "#fff", fontWeight: 700, fontSize: 22, lineHeight: 1 }}>{swipesLeft}</div>
-              <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10 }}>swipes left this week</div>
+              <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10 }}>
+                {isUnlimited ? "unlimited plan" : "swipes left this week"}
+              </div>
             </div>
             <button onClick={() => setShowLog(true)} style={{
-              background: "#fff", color: "#2774AE", border: "none", borderRadius: 10,
+              background: "#fff", color: sc, border: "none", borderRadius: 10,
               padding: "9px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer",
               marginLeft: 8, whiteSpace: "nowrap",
             }}>+ Log a meal</button>
           </div>
         </div>
-
-        {/* Two-column body */}
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 40px", display: "grid",
           gridTemplateColumns: tab === "log" ? "1fr 380px" : "1fr", gap: 28 }}>
-
-          {tab === "log" && (
-            <>
-              {/* Left: meal log */}
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Recent meals</div>
-                <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={true} />
-              </div>
-              {/* Right: stats sidebar */}
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>This week</div>
-                <Stats meals={data.meals} mealPlan={mealPlan} />
-              </div>
-            </>
-          )}
-
-          {tab === "stats" && (
-            <div style={{ maxWidth: 800 }}>
-              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Stats & Trends</div>
-              <Stats meals={data.meals} mealPlan={mealPlan} />
+          {tab === "log" && (<>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Recent meals</div>
+              <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={true} schoolColor={sc} />
             </div>
-          )}
-
-
-          {tab === "top" && (
-            <div style={{ maxWidth: 700 }}>
-              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>🏆 Top Meals</div>
-              <TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>This week</div>
+              <Stats meals={data.meals} mealPlan={mealPlan} school={school} />
             </div>
-          )}
-          {tab === "settings" && (
-            <div style={{ maxWidth: 600, display: "grid", gap: 32 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>School</div>
-                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 16 }}>Your school sets the default locations and meal plan options.</div>
-                <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Meal Plan</div>
-                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 16 }}>Controls your weekly swipe budget and rollover logic.</div>
-                <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Locations</div>
-                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 16 }}>Add off-campus spots or custom locations to your log.</div>
-                <LocationsManager
-                  defaultLocations={school.locations}
-                  customLocations={data.customLocations || []}
-                  onAdd={handleAddLocation}
-                  onRemove={handleRemoveLocation}
-                />
-              </div>
-            </div>
-          )}
+          </>)}
+          {tab === "stats" && <div style={{ maxWidth: 800 }}><div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>Stats & Trends</div><Stats meals={data.meals} mealPlan={mealPlan} school={school} /></div>}
+          {tab === "top" && <div style={{ maxWidth: 700 }}><div style={{ fontWeight: 700, fontSize: 20, marginBottom: 16 }}>🏆 Top Meals</div><TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} schoolColor={sc} /></div>}
+          {tab === "settings" && <div style={{ maxWidth: 600 }}>{settingsContent(20)}</div>}
         </div>
-
-        {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
-          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={true} />}
-        {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
-          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={true} editMeal={editingMeal} />}
-        {rankingItem && <RankerModal newItem={rankingItem} rankings={data.rankings || {}} onDone={handleRankDone} onSkip={handleRankSkip} isDesktop={true} />}
-        {toast && <Toast msg={toast} />}
+        {modals(true)}
       </div>
     );
   }
@@ -1296,7 +1315,7 @@ export default function App() {
   if (isTablet) {
     return (
       <div style={{ minHeight: "100vh", background: "#eef2f7", fontFamily: "'Inter', -apple-system, sans-serif" }}>
-        <div style={{ background: "#2774AE", padding: "16px 24px 0", position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{ background: sc, padding: "16px 24px 0", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 20 }}>🍽</span>
@@ -1308,10 +1327,12 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ textAlign: "right" }}>
                 <div style={{ color: "#fff", fontWeight: 700, fontSize: 24 }}>{swipesLeft}</div>
-                <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10 }}>swipes left</div>
+                <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10 }}>
+                  {isUnlimited ? "unlimited" : "swipes left"}
+                </div>
               </div>
               <button onClick={() => setShowLog(true)} style={{
-                background: "#fff", color: "#2774AE", border: "none", borderRadius: 10,
+                background: "#fff", color: sc, border: "none", borderRadius: 10,
                 padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
               }}>+ Log</button>
             </div>
@@ -1321,54 +1342,19 @@ export default function App() {
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 flex: 1, padding: "10px 0", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
                 background: tab === t.id ? "#fff" : "transparent",
-                color: tab === t.id ? "#2774AE" : "rgba(255,255,255,.75)",
+                color: tab === t.id ? sc : "rgba(255,255,255,.75)",
                 transition: "all .15s",
               }}>{t.label}</button>
             ))}
           </div>
         </div>
         <div style={{ padding: "20px 24px 40px", maxWidth: 900, margin: "0 auto" }}>
-          {tab === "log" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
-              <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={true} />
-              <Stats meals={data.meals} mealPlan={mealPlan} />
-            </div>
-          )}
-          {tab === "top" && (
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>🏆 Top Meals</div>
-              <TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} />
-            </div>
-          )}
-          {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
-
-          {tab === "settings" && (
-            <div style={{ maxWidth: 600, display: "grid", gap: 28 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>School</div>
-                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 14 }}>Your school sets the default locations and meal plan options.</div>
-                <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Meal Plan</div>
-                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 14 }}>Controls your weekly swipe budget and rollover logic.</div>
-                <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Locations</div>
-                <div style={{ fontSize: 13, color: "#aaa", marginBottom: 14 }}>Add off-campus spots or custom locations.</div>
-                <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
-                  onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
-              </div>
-            </div>
-          )}
+          {tab === "log" && <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}><MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={true} schoolColor={sc} /><Stats meals={data.meals} mealPlan={mealPlan} school={school} /></div>}
+          {tab === "top" && <div><div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>🏆 Top Meals</div><TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} schoolColor={sc} /></div>}
+          {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} school={school} />}
+          {tab === "settings" && <div style={{ maxWidth: 600 }}>{settingsContent(18)}</div>}
         </div>
-        {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
-          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
-        {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
-          allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} editMeal={editingMeal} />}
-        {rankingItem && <RankerModal newItem={rankingItem} rankings={data.rankings || {}} onDone={handleRankDone} onSkip={handleRankSkip} isDesktop={false} />}
-        {toast && <Toast msg={toast} />}
+        {modals(false)}
       </div>
     );
   }
@@ -1376,7 +1362,7 @@ export default function App() {
   // ── Mobile layout ───────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: "100vh", background: "#f5f7fa", fontFamily: "'Inter', -apple-system, sans-serif" }}>
-      <div style={{ background: "#2774AE", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 10 }}>
+      <div style={{ background: sc, padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16 }}>
           <div>
             <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, letterSpacing: 1.5, marginBottom: 3 }}>SWIPES</div>
@@ -1384,7 +1370,9 @@ export default function App() {
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ color: "#fff", fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{swipesLeft}</div>
-            <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10, marginTop: 2 }}>swipes left</div>
+            <div style={{ color: "rgba(255,255,255,.6)", fontSize: 10, marginTop: 2 }}>
+              {isUnlimited ? "unlimited" : "swipes left"}
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", background: "rgba(255,255,255,.12)", borderRadius: "8px 8px 0 0", overflow: "hidden" }}>
@@ -1392,60 +1380,23 @@ export default function App() {
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               flex: 1, padding: "10px 0", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
               background: tab === t.id ? "#fff" : "transparent",
-              color: tab === t.id ? "#2774AE" : "rgba(255,255,255,.75)",
+              color: tab === t.id ? sc : "rgba(255,255,255,.75)",
               transition: "all .15s",
             }}>{t.label}</button>
           ))}
         </div>
       </div>
-
       <div style={{ padding: "16px 16px 110px" }}>
-        {tab === "log" && (
-          <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={false} />
-        )}
-        {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} />}
-        {tab === "top" && (
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>🏆 Top Meals</div>
-            <TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} />
-          </div>
-        )}
-
-        {tab === "settings" && (
-          <div style={{ display: "grid", gap: 24 }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>School</div>
-              <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>Sets your default locations and meal plan options.</div>
-              <SchoolSelector currentSchool={data.school || DEFAULT_SCHOOL} onChangeSchool={handleChangeSchool} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Meal Plan</div>
-              <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>Controls your weekly swipe budget and rollover.</div>
-              <MealPlanSelector currentPlan={mealPlan} onChangePlan={handleChangePlan} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Locations</div>
-              <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>Add off-campus spots or custom locations.</div>
-              <LocationsManager defaultLocations={school.locations} customLocations={data.customLocations || []}
-                onAdd={handleAddLocation} onRemove={handleRemoveLocation} />
-            </div>
-          </div>
-        )}
+        {tab === "log" && <MealLog meals={data.meals} onDelete={handleDelete} onEdit={handleEdit} onLogNew={() => setShowLog(true)} isDesktop={false} schoolColor={sc} />}
+        {tab === "stats" && <Stats meals={data.meals} mealPlan={mealPlan} school={school} />}
+        {tab === "top" && <div><div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>🏆 Top Meals</div><TopMeals rankings={data.rankings || {}} meals={data.meals} onStartComparison={handleManualCompare} onDeleteRanking={handleDeleteRanking} schoolColor={sc} /></div>}
+        {tab === "settings" && settingsContent(16)}
       </div>
-
-      {showLog && <LogModal onClose={() => setShowLog(false)} onSave={handleSave}
-        allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} />}
-      {editingMeal && <LogModal onClose={() => setEditingMeal(null)} onSave={handleUpdate}
-        allLocations={allLocations} onAddLocation={handleAddLocation} isDesktop={false} editMeal={editingMeal} />}
-      {rankingItem && <RankerModal newItem={rankingItem} rankings={data.rankings || {}} onDone={handleRankDone} onSkip={handleRankSkip} isDesktop={false} />}
-      {toast && <Toast msg={toast} />}
+      {modals(false)}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Toast
-// ─────────────────────────────────────────────────────────────────────────────
 function Toast({ msg }) {
   return (
     <div style={{
@@ -1456,4 +1407,3 @@ function Toast({ msg }) {
     }}>{msg}</div>
   );
 }
-
