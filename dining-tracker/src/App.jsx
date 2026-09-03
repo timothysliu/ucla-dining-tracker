@@ -238,18 +238,26 @@ function load() {
       || localStorage.getItem("ucla_dining_v4")
       || localStorage.getItem("ucla_dining_v3")
       || localStorage.getItem("ucla_dining_v2");
-    if (!raw) return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {}, school: DEFAULT_SCHOOL };
+    // Brand-new user — no data at all
+    if (!raw) return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {}, school: null, onboarded: false };
     const parsed = JSON.parse(raw);
     if (!parsed.mealPlan) parsed.mealPlan = DEFAULT_PLAN;
     if (!parsed.rankings) parsed.rankings = {};
-    if (!parsed.school) parsed.school = DEFAULT_SCHOOL;
+    // Existing users who already have a school set are considered onboarded
+    if (!parsed.school) {
+      parsed.onboarded = false;
+    } else {
+      if (parsed.onboarded === undefined) parsed.onboarded = true;
+    }
     // If stored plan is invalid for stored school, reset to that school's first plan
-    const storedSchool = SCHOOLS[parsed.school] || SCHOOLS[DEFAULT_SCHOOL];
-    if (!storedSchool.plans.includes(parsed.mealPlan)) {
-      parsed.mealPlan = storedSchool.plans[0];
+    if (parsed.school) {
+      const storedSchool = SCHOOLS[parsed.school] || SCHOOLS[DEFAULT_SCHOOL];
+      if (!storedSchool.plans.includes(parsed.mealPlan)) {
+        parsed.mealPlan = storedSchool.plans[0];
+      }
     }
     return parsed;
-  } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {}, school: DEFAULT_SCHOOL }; }
+  } catch { return { meals: [], customLocations: [], mealPlan: DEFAULT_PLAN, rankings: {}, school: null, onboarded: false }; }
 }
 function persist(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
@@ -1062,6 +1070,337 @@ function LocationsManager({ defaultLocations, customLocations, onAdd, onRemove, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Onboarding — shown once to new users (school not yet chosen)
+// ─────────────────────────────────────────────────────────────────────────────
+function Onboarding({ onComplete }) {
+  const [step, setStep] = useState(1);           // 1 = school, 2 = plan
+  const [selectedSchool, setSelectedSchool] = useState(null);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [animating, setAnimating] = useState(false);
+  const [exitDir, setExitDir] = useState(null);  // "left" when advancing
+  const { isMobile } = useBreakpoint();
+
+  const school = selectedSchool ? SCHOOLS[selectedSchool] : null;
+  const sc = school?.color || "#2774AE";
+
+  function advanceToStep2() {
+    setExitDir("left");
+    setAnimating(true);
+    setTimeout(() => {
+      setStep(2);
+      setSelectedPlan(SCHOOLS[selectedSchool].plans[0]);
+      setAnimating(false);
+      setExitDir(null);
+    }, 280);
+  }
+
+  function goBack() {
+    setExitDir("right");
+    setAnimating(true);
+    setTimeout(() => {
+      setStep(1);
+      setAnimating(false);
+      setExitDir(null);
+    }, 280);
+  }
+
+  function finish() {
+    onComplete({ school: selectedSchool, mealPlan: selectedPlan });
+  }
+
+  const slideStyle = {
+    transform: animating
+      ? exitDir === "left" ? "translateX(-40px)" : "translateX(40px)"
+      : "translateX(0)",
+    opacity: animating ? 0 : 1,
+    transition: "transform 0.28s ease, opacity 0.28s ease",
+  };
+
+  const isBerkeley = school?.calType === "semester";
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: "#F8F9FB",
+      fontFamily: "'Inter', -apple-system, sans-serif",
+      display: "flex", flexDirection: "column",
+    }}>
+      {/* Progress strip */}
+      <div style={{ height: 3, background: "#eee", position: "relative" }}>
+        <div style={{
+          position: "absolute", left: 0, top: 0, height: "100%",
+          background: sc, width: step === 1 ? "50%" : "100%",
+          transition: "width 0.4s ease, background 0.4s ease",
+        }} />
+      </div>
+
+      {/* Header */}
+      <div style={{
+        padding: isMobile ? "24px 20px 0" : "32px 40px 0",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>🍽</span>
+          <span style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.3px" }}>Swipes</span>
+        </div>
+        <div style={{ fontSize: 13, color: "#bbb", fontWeight: 500 }}>
+          {step} of 2
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{
+        flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
+        padding: isMobile ? "32px 20px 40px" : "40px 40px 60px",
+        maxWidth: 540, width: "100%", margin: "0 auto", boxSizing: "border-box",
+      }}>
+
+        {/* ── Step 1: School ── */}
+        {step === 1 && (
+          <div style={slideStyle}>
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontSize: isMobile ? 28 : 34, fontWeight: 300, lineHeight: 1.2, color: "#111", marginBottom: 10 }}>
+                Which school<br />
+                <span style={{ fontWeight: 700 }}>are you at?</span>
+              </div>
+              <div style={{ fontSize: 14, color: "#999", lineHeight: 1.5 }}>
+                Locations and meal plans load automatically.
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gap: 10, marginBottom: 28 }}>
+              {Object.values(SCHOOLS).map(s => {
+                const active = selectedSchool === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setSelectedSchool(s.id)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 16,
+                      padding: "16px 18px", borderRadius: 14, cursor: "pointer",
+                      border: active ? `2px solid ${s.color}` : "1.5px solid #E8E8E8",
+                      background: active ? s.color + "0F" : "#fff",
+                      textAlign: "left", transition: "border 0.15s, background 0.15s",
+                      boxShadow: active ? `0 0 0 4px ${s.color}18` : "none",
+                    }}
+                  >
+                    <div style={{
+                      width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+                      background: active ? s.color : s.color + "22",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "background 0.15s",
+                    }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: active ? "#fff" : s.color }}>
+                        {s.name === "UCLA" ? "UC" : "UC"}
+                      </span>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 16, color: active ? s.color : "#1a1a1a", marginBottom: 2 }}>
+                        {s.name}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#aaa" }}>
+                        {s.locations.length} dining spots · {s.plans.length} meal plans
+                      </div>
+                    </div>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                      background: active ? s.color : "#f0f0f0",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "background 0.15s",
+                    }}>
+                      {active && <span style={{ color: "#fff", fontSize: 12, lineHeight: 1 }}>✓</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Coming soon row */}
+            <div style={{
+              display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 32,
+            }}>
+              {["SJSU", "UC Irvine", "Caltech"].map(name => (
+                <div key={name} style={{
+                  padding: "6px 12px", borderRadius: 20,
+                  border: "1.5px dashed #ddd", fontSize: 12, color: "#ccc",
+                }}>
+                  {name} — soon
+                </div>
+              ))}
+            </div>
+
+            <button
+              disabled={!selectedSchool}
+              onClick={advanceToStep2}
+              style={{
+                width: "100%", padding: "15px 0", borderRadius: 13,
+                border: "none", cursor: selectedSchool ? "pointer" : "not-allowed",
+                background: selectedSchool ? sc : "#e8e8e8",
+                color: selectedSchool ? "#fff" : "#bbb",
+                fontSize: 15, fontWeight: 600,
+                transition: "background 0.3s ease",
+                boxShadow: selectedSchool ? `0 4px 16px ${sc}40` : "none",
+              }}
+            >
+              Continue →
+            </button>
+          </div>
+        )}
+
+        {/* ── Step 2: Meal plan ── */}
+        {step === 2 && school && (
+          <div style={slideStyle}>
+            <div style={{ marginBottom: 28 }}>
+              <button
+                onClick={goBack}
+                style={{ ...ghostBtnStyle, fontSize: 13, color: "#aaa", marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                ← Back
+              </button>
+              <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 300, lineHeight: 1.2, color: "#111", marginBottom: 10 }}>
+                {school.name} —<br />
+                <span style={{ fontWeight: 700 }}>pick your plan.</span>
+              </div>
+              <div style={{ fontSize: 14, color: "#999", lineHeight: 1.5 }}>
+                {isBerkeley
+                  ? "Swipes reset every Monday. No rollover."
+                  : "Premier plans let unused swipes carry over week to week."}
+              </div>
+            </div>
+
+            {/* Berkeley: flat list */}
+            {isBerkeley && (
+              <div style={{ display: "grid", gap: 10, marginBottom: 28 }}>
+                {school.plans.map(id => {
+                  const p = MEAL_PLANS[id];
+                  const active = selectedPlan === id;
+                  const unlimited = p.weekly >= 999;
+                  return (
+                    <button key={id} onClick={() => setSelectedPlan(id)} style={{
+                      display: "flex", alignItems: "center", gap: 16,
+                      padding: "16px 18px", borderRadius: 14, cursor: "pointer",
+                      border: active ? `2px solid ${sc}` : "1.5px solid #E8E8E8",
+                      background: active ? sc + "0F" : "#fff",
+                      textAlign: "left", transition: "all 0.15s",
+                      boxShadow: active ? `0 0 0 4px ${sc}18` : "none",
+                    }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: active ? sc : "#1a1a1a", marginBottom: 3 }}>
+                          {p.label}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#aaa" }}>
+                          {unlimited ? "Unlimited swipes · 1 per 30 min" : `${p.weekly} swipes/week`} · no rollover
+                        </div>
+                      </div>
+                      <div style={{
+                        width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                        background: active ? sc : "#f0f0f0",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "background 0.15s",
+                      }}>
+                        {active && <span style={{ color: "#fff", fontSize: 12 }}>✓</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* UCLA: premier / regular groups */}
+            {!isBerkeley && (() => {
+              const premiers = school.plans.filter(id => MEAL_PLANS[id]?.premier);
+              const regulars  = school.plans.filter(id => MEAL_PLANS[id] && !MEAL_PLANS[id].premier);
+              return (
+                <div style={{ display: "grid", gap: 10, marginBottom: 28 }}>
+                  {/* Group label: Premier */}
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#bbb", letterSpacing: 0.5, marginBottom: -2 }}>
+                    Premier — rollover ✓
+                  </div>
+                  {premiers.map(id => {
+                    const p = MEAL_PLANS[id];
+                    const active = selectedPlan === id;
+                    return (
+                      <button key={id} onClick={() => setSelectedPlan(id)} style={{
+                        display: "flex", alignItems: "center", gap: 16,
+                        padding: "14px 18px", borderRadius: 14, cursor: "pointer",
+                        border: active ? `2px solid ${sc}` : "1.5px solid #E8E8E8",
+                        background: active ? sc + "0F" : "#fff",
+                        textAlign: "left", transition: "all 0.15s",
+                        boxShadow: active ? `0 0 0 4px ${sc}18` : "none",
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: active ? sc : "#1a1a1a", marginBottom: 3 }}>
+                            {p.label}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#aaa" }}>{p.weekly} swipes/week</div>
+                        </div>
+                        <div style={{
+                          width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                          background: active ? sc : "#f0f0f0",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          {active && <span style={{ color: "#fff", fontSize: 12 }}>✓</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {/* Group label: Regular */}
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#bbb", letterSpacing: 0.5, marginTop: 6, marginBottom: -2 }}>
+                    Regular — weekly reset
+                  </div>
+                  {regulars.map(id => {
+                    const p = MEAL_PLANS[id];
+                    const active = selectedPlan === id;
+                    return (
+                      <button key={id} onClick={() => setSelectedPlan(id)} style={{
+                        display: "flex", alignItems: "center", gap: 16,
+                        padding: "14px 18px", borderRadius: 14, cursor: "pointer",
+                        border: active ? `2px solid #888` : "1.5px solid #E8E8E8",
+                        background: active ? "#88888810" : "#fff",
+                        textAlign: "left", transition: "all 0.15s",
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: active ? "#555" : "#1a1a1a", marginBottom: 3 }}>
+                            {p.label}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#aaa" }}>{p.weekly} swipes/week</div>
+                        </div>
+                        <div style={{
+                          width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                          background: active ? "#888" : "#f0f0f0",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          {active && <span style={{ color: "#fff", fontSize: 12 }}>✓</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            <button
+              disabled={!selectedPlan}
+              onClick={finish}
+              style={{
+                width: "100%", padding: "15px 0", borderRadius: 13,
+                border: "none", cursor: selectedPlan ? "pointer" : "not-allowed",
+                background: selectedPlan ? sc : "#e8e8e8",
+                color: selectedPlan ? "#fff" : "#bbb",
+                fontSize: 15, fontWeight: 600,
+                transition: "background 0.3s ease",
+                boxShadow: selectedPlan ? `0 4px 16px ${sc}40` : "none",
+              }}
+            >
+              Start tracking →
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // App
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -1075,6 +1414,16 @@ export default function App() {
   const [rankingItem, setRankingItem] = useState(null);
 
   function update(next) { setData(next); persist(next); }
+
+  // ── Onboarding gate ─────────────────────────────────────────────────────────
+  if (!data.onboarded) {
+    return (
+      <Onboarding onComplete={({ school, mealPlan }) => {
+        const next = { ...data, school, mealPlan, onboarded: true, customLocations: [] };
+        update(next);
+      }} />
+    );
+  }
 
   function handleSave(meal) {
     const newData = { ...data, meals: [meal, ...data.meals] };
